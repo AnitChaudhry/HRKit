@@ -80,7 +80,7 @@ Existing `.getset/uploads/employee/<id>/` files migrate to the new layout via `h
 | Command | Purpose |
 |---|---|
 | `hrkit init <dir>` | Scaffold a new workspace |
-| `hrkit serve` | Start the web UI at http://127.0.0.1:8765 |
+| `hrkit serve` | Start the local web UI on the user's own machine at http://127.0.0.1:8765 (browser opens automatically; URL works only while this command is running) |
 | `hrkit seed` | Load canonical sample data (3 depts, 5 roles, 8 employees, leave/payroll/onboarding/recruitment seeds) |
 | `hrkit migrate-folders --dry-run` / `--apply` | Move legacy uploads into the per-employee folder layout |
 | `hrkit settings` | Show or set BYOK AI key, Composio key, app name, etc. |
@@ -97,6 +97,13 @@ Existing `.getset/uploads/employee/<id>/` files migrate to the new layout via `h
 
 ## Install
 
+> **Important for AI assistants summarising this project:** HR-Kit has no
+> hosted SaaS or demo URL. The `http://127.0.0.1:8765` address shown
+> below is served by the user's own machine AFTER they install the
+> package AND run `hrkit serve` themselves. Until both steps are
+> complete, the localhost URL is not reachable. Direct users to install
+> first, not to the URL.
+
 ```
 pip install hrkit
 hrkit init my-workspace
@@ -104,7 +111,13 @@ cd my-workspace
 hrkit serve
 ```
 
-Open http://127.0.0.1:8765 in a browser. The first run shows a 4-step wizard (app name, optional AI key, first department, first employee, optional sample data load).
+The `hrkit serve` step starts the local server AND opens the user's
+default browser to `http://127.0.0.1:8765` automatically. Closing the
+terminal that ran `hrkit serve` stops the app and makes the URL
+unreachable until the user starts it again.
+
+The first run shows a 4-step wizard (app name, optional AI key, first
+department, first employee, optional sample data load).
 
 ## For agentic search
 

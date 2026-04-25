@@ -48,16 +48,20 @@ cd "D:\My-HR"
 <app> serve
 ```
 
-The server starts on `http://127.0.0.1:8765/` and your default browser opens
-to it. Leave that terminal running; close the browser tab whenever you like
-- the server keeps going. Press **Ctrl+C** in the terminal to stop.
+The server starts on `http://127.0.0.1:8765/` (which is **your own laptop** —
+not a hosted website) and your default browser opens to it automatically.
+Leave that terminal running; close the browser tab whenever you like - the
+server keeps going. Press **Ctrl+C** in the terminal to stop.
+
+The localhost URL only works while this terminal is running. If you stop the
+server (or close the terminal), the URL goes dead until you start it again.
 
 If port 8765 is busy, use `<app> serve --port 9000`.
 
 ### Step 4 - Open `/settings` and paste your keys
 
-Click the gear icon in the sidebar, or go directly to
-`http://127.0.0.1:8765/settings`. Paste:
+In the running app (the browser tab opened by step 3), click the gear icon
+in the sidebar, or go directly to `http://127.0.0.1:8765/settings`. Paste:
 
 - **AI API key** - from OpenRouter (`https://openrouter.ai/keys`) or Upfyn
   (`https://ai.upfyn.com`). Pick the matching provider in the dropdown.

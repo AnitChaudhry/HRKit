@@ -80,7 +80,7 @@ shim just hides `pip` from view.
 ```bash
 pip install hrkit                         # once published to PyPI
 # or, until then:
-pip install git+https://github.com/AnitChaudhry/hrkit.git
+pip install git+https://github.com/AnitChaudhry/HRKit.git
 ```
 
 ## Five-step setup (the promise)
@@ -91,10 +91,12 @@ pip install git+https://github.com/AnitChaudhry/hrkit.git
 # 2. initialise a workspace folder
 hrkit init "D:\My-HR"                    # creates the folder + .getset/ + workspace marker
 
-# 3. start the server (opens your browser)
+# 3. start the server (this also opens your browser automatically)
 cd "D:\My-HR" && hrkit serve
 
-# 4. open http://127.0.0.1:8765/settings
+# 4. once step 3 is running, open http://127.0.0.1:8765/settings in your browser
+#    (this URL is YOUR machine — it only works while `hrkit serve` is running.
+#     it is NOT a hosted demo. closing the terminal stops the server.)
 #    paste your AI key (OpenRouter or Upfyn) and your Composio key
 
 # 5. start using it — add your first employee, department, leave type
@@ -103,6 +105,12 @@ cd "D:\My-HR" && hrkit serve
 That is the whole onboarding. Five steps, no `.env` files to learn, no
 docker-compose, no migrations to run by hand (the app runs them on first
 boot).
+
+> **About `http://127.0.0.1:8765/`:** that is the address your own laptop
+> serves the app on after step 3. It is unreachable from anywhere else,
+> and it stops working the moment you close the terminal. There is no
+> hosted SaaS version of HR-Kit — running the app on your own machine
+> is the entire product.
 
 > **Footnote on the binary name.** The console script installed by `pip
 > install` is named `hrkit` (lowercase). The npm wrapper exposes the same

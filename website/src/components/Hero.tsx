@@ -74,7 +74,7 @@ export function Hero() {
           className="flex items-center gap-4 mt-8"
         >
           <a
-            href="https://github.com/AnitChaudhry/hrkit"
+            href="https://github.com/AnitChaudhry/HRKit"
             target="_blank"
             rel="noreferrer"
             className="liquid-glass-strong rounded-full px-5 py-2.5 text-white font-body text-sm flex items-center gap-2"
@@ -82,7 +82,7 @@ export function Hero() {
             <Github className="w-4 h-4" /> Star on GitHub <ArrowUpRight className="w-4 h-4" />
           </a>
           <a
-            href="https://github.com/AnitChaudhry/hrkit#readme"
+            href="https://github.com/AnitChaudhry/HRKit#readme"
             target="_blank"
             rel="noreferrer"
             className="text-white/80 hover:text-white font-body text-sm flex items-center gap-2"

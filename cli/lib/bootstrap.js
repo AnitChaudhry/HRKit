@@ -15,7 +15,7 @@ const readline = require('readline');
 const HRKIT_PIP_NAME = process.env.HRKIT_PIP_NAME || 'hrkit';
 const HRKIT_GIT_URL =
   process.env.HRKIT_GIT_URL ||
-  'git+https://github.com/AnitChaudhry/hrkit.git';
+  'git+https://github.com/AnitChaudhry/HRKit.git';
 // Until hrkit is published to PyPI, install straight from GitHub by default.
 // Set HRKIT_INSTALL_SOURCE=pypi to use `pip install hrkit` instead.
 const HRKIT_INSTALL_SOURCE = process.env.HRKIT_INSTALL_SOURCE || 'git';

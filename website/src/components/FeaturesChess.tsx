@@ -29,7 +29,7 @@ export function FeaturesChess() {
             single SQLite file on your machine.
           </p>
           <a
-            href="https://github.com/AnitChaudhry/hrkit/blob/main/USER-MANUAL.md#modules"
+            href="https://github.com/AnitChaudhry/HRKit/blob/main/USER-MANUAL.md#modules"
             target="_blank"
             rel="noreferrer"
             className="liquid-glass-strong rounded-full px-5 py-2.5 text-white text-sm font-body flex items-center gap-2 mt-6 w-fit"
@@ -55,7 +55,7 @@ export function FeaturesChess() {
             Done in seconds, with a full audit trail.
           </p>
           <a
-            href="https://github.com/AnitChaudhry/hrkit/blob/main/USER-MANUAL.md#ai-assistant"
+            href="https://github.com/AnitChaudhry/HRKit/blob/main/USER-MANUAL.md#ai-assistant"
             target="_blank"
             rel="noreferrer"
             className="liquid-glass-strong rounded-full px-5 py-2.5 text-white text-sm font-body flex items-center gap-2 mt-6 w-fit"

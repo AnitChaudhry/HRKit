@@ -85,8 +85,13 @@ Resume link, notes, interview feedback, etc.
 
 ## How to start
 
+> The app runs **on your own machine**. `http://127.0.0.1:8765/` is the
+> local address the server binds to once started; it is not a hosted demo
+> and stops working as soon as you stop the server.
+
 **Windows one-click:** double-click `start-hrkit.bat` in the workspace root.
-It starts the server on `http://127.0.0.1:8765/` and opens your browser.
+It starts the local server on `http://127.0.0.1:8765/` and opens your
+browser to it. Keep the console window open — closing it stops the app.
 
 **Scan from a shortcut:** double-click `scan-hrkit.bat` to rebuild the cache.
 

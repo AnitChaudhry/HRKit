@@ -60,7 +60,7 @@ function CtaFooter() {
         </p>
         <div className="flex flex-wrap justify-center gap-3">
           <a
-            href="https://github.com/AnitChaudhry/hrkit"
+            href="https://github.com/AnitChaudhry/HRKit"
             target="_blank"
             rel="noreferrer"
             className="bg-white text-black rounded-full px-6 py-3 text-sm font-body font-medium flex items-center gap-2"
@@ -68,7 +68,7 @@ function CtaFooter() {
             <Github className="w-4 h-4" /> Star on GitHub
           </a>
           <a
-            href="https://github.com/AnitChaudhry/hrkit#readme"
+            href="https://github.com/AnitChaudhry/HRKit#readme"
             target="_blank"
             rel="noreferrer"
             className="liquid-glass-strong rounded-full px-6 py-3 text-white text-sm font-body flex items-center gap-2"
@@ -83,9 +83,9 @@ function CtaFooter() {
           © 2026 HR-Kit contributors · MIT License
         </div>
         <div className="flex gap-6 text-white/40 text-xs font-body">
-          <a href="https://github.com/AnitChaudhry/hrkit" target="_blank" rel="noreferrer">GitHub</a>
-          <a href="https://github.com/AnitChaudhry/hrkit#readme" target="_blank" rel="noreferrer">Docs</a>
-          <a href="https://github.com/AnitChaudhry/hrkit/discussions" target="_blank" rel="noreferrer">Discussions</a>
+          <a href="https://github.com/AnitChaudhry/HRKit" target="_blank" rel="noreferrer">GitHub</a>
+          <a href="https://github.com/AnitChaudhry/HRKit#readme" target="_blank" rel="noreferrer">Docs</a>
+          <a href="https://github.com/AnitChaudhry/HRKit/discussions" target="_blank" rel="noreferrer">Discussions</a>
         </div>
       </div>
     </section>

@@ -3,8 +3,8 @@ import { Star } from 'lucide-react';
 // HR-Kit is a local Python app the user installs themselves — the website
 // is marketing only. CTAs drive to GitHub + the docs in the repo.
 
-const GITHUB_URL = 'https://github.com/AnitChaudhry/hrkit';
-const DOCS_URL = 'https://github.com/AnitChaudhry/hrkit#readme';
+const GITHUB_URL = 'https://github.com/AnitChaudhry/HRKit';
+const DOCS_URL = 'https://github.com/AnitChaudhry/HRKit#readme';
 
 export function Navbar() {
   return (

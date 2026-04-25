@@ -72,7 +72,7 @@ function StartSection() {
           all of it.
         </p>
         <a
-          href="https://github.com/AnitChaudhry/hrkit#quickstart"
+          href="https://github.com/AnitChaudhry/HRKit#quickstart"
           target="_blank"
           rel="noreferrer"
           className="liquid-glass-strong rounded-full px-6 py-3 text-white text-sm font-body flex items-center gap-2 mt-2"

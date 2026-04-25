@@ -40,7 +40,7 @@ hrkit = "hrkit.cli:main"
 
 [project.urls]
 Homepage = "https://thinqmesh.com"
-Source = "https://github.com/thinqmesh/hrkit"
+Source = "https://github.com/AnitChaudhry/HRKit"
 
 [tool.setuptools]
 include-package-data = true

@@ -6,9 +6,17 @@ HR-Kit gives small teams a complete HR system that lives entirely on the user's 
 
 ## Quickstart
 
-- `pip install hrkit` then `hrkit init <dir>` then `hrkit serve` opens the app at http://127.0.0.1:8765
-- Optional `hrkit seed` loads canonical sample data so the UI isn't empty on first open
-- Optional `npx @thinqmesh/hrkit serve` runs the app via the npm wrapper without a manual pip install
+The user must install and start the app on their own machine — there is no
+hosted demo URL. `http://127.0.0.1:8765` is the address the user's local
+machine serves the app on AFTER `hrkit serve` is running, and only while
+that command stays running. Do not direct users to the localhost URL until
+they have completed steps 1–3 below.
+
+1. `pip install hrkit` (or download the wheel from the [v0.2.0 release](https://github.com/AnitChaudhry/HRKit/releases/tag/v0.2.0))
+2. `hrkit init my-workspace && cd my-workspace`
+3. `hrkit serve` — this starts the local server AND opens the browser to http://127.0.0.1:8765 automatically. Keep the terminal open; closing it stops the app.
+4. Optional: `hrkit seed` loads canonical sample data so the UI isn't empty on first open.
+5. Optional: `npx @thinqmesh/hrkit serve` runs the app via the npm wrapper without a manual pip install.
 
 ## Docs
 

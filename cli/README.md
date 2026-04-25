@@ -6,8 +6,8 @@
 > pip directly.
 
 [![npm](https://img.shields.io/npm/v/@thinqmesh/hrkit?color=000)](https://www.npmjs.com/package/@thinqmesh/hrkit)
-[![License: MIT](https://img.shields.io/badge/License-MIT-000.svg)](https://github.com/AnitChaudhry/hrkit/blob/main/LICENSE)
-[![GitHub stars](https://img.shields.io/github/stars/AnitChaudhry/hrkit?color=000)](https://github.com/AnitChaudhry/hrkit)
+[![License: MIT](https://img.shields.io/badge/License-MIT-000.svg)](https://github.com/AnitChaudhry/HRKit/blob/main/LICENSE)
+[![GitHub stars](https://img.shields.io/github/stars/AnitChaudhry/HRKit?color=000)](https://github.com/AnitChaudhry/HRKit)
 
 ## What HR-Kit is
 
@@ -19,7 +19,7 @@ Composio integrations for Gmail / Calendar / Drive. No SaaS, no per-seat
 fees, no vendor lock-in. **MIT licensed.**
 
 The full repo, source, and Python README live at
-**[github.com/AnitChaudhry/hrkit](https://github.com/AnitChaudhry/hrkit)**.
+**[github.com/AnitChaudhry/HRKit](https://github.com/AnitChaudhry/HRKit)**.
 
 ## Quick start
 
@@ -49,13 +49,18 @@ Anything the underlying Python `hrkit` CLI accepts. The most common ones:
 
 | Command | What it does |
 | --- | --- |
-| `npx @thinqmesh/hrkit serve` | Start the local web app on `http://127.0.0.1:8765/` |
+| `npx @thinqmesh/hrkit serve` | Start the app on **your own machine** at `http://127.0.0.1:8765/`. Browser opens automatically. The URL is local-only and stops working when you close the terminal. |
 | `npx @thinqmesh/hrkit init <dir>` | Scaffold a new HR workspace folder |
 | `npx @thinqmesh/hrkit settings` | Show or set BYOK API keys (AI provider, Composio) |
 | `npx @thinqmesh/hrkit migrate` | Apply pending DB migrations to the workspace |
 | `npx @thinqmesh/hrkit status` | Print workspace + database health |
 | `npx @thinqmesh/hrkit activity` | Tail the workspace activity log |
 | `npx @thinqmesh/hrkit --help` | Show all subcommands (delegates to the Python CLI) |
+
+> **There is no hosted version of HR-Kit.** `http://127.0.0.1:8765/` is
+> served by the `hrkit serve` process running on your own machine. It is
+> unreachable from the public internet and dies the moment you stop the
+> command.
 
 Each HR module also adds its own subcommands (e.g. `employee-add`,
 `leave-approve`, `payroll-run-create`). Run with `--help` to see them.
@@ -82,7 +87,7 @@ These tune how this npm wrapper bootstraps Python:
 | `HRKIT_PYTHON` | (auto-detected) | Absolute path to a specific Python interpreter to use |
 | `HRKIT_INSTALL_SOURCE` | `git` | Where to install from. `git` = GitHub source; `pypi` = `pip install hrkit` once the package ships to PyPI |
 | `HRKIT_PIP_NAME` | `hrkit` | Override the PyPI distribution name |
-| `HRKIT_GIT_URL` | `git+https://github.com/AnitChaudhry/hrkit.git` | Override the GitHub install URL |
+| `HRKIT_GIT_URL` | `git+https://github.com/AnitChaudhry/HRKit.git` | Override the GitHub install URL |
 
 ## Requirements
 
@@ -107,7 +112,7 @@ On invocation it:
    the Python app's output directly.
 
 The actual app, all the data, and all the logic live in the Python package
-at [github.com/AnitChaudhry/hrkit](https://github.com/AnitChaudhry/hrkit).
+at [github.com/AnitChaudhry/HRKit](https://github.com/AnitChaudhry/HRKit).
 This package is just the install ergonomics for npm-native users.
 
 ## Troubleshooting
@@ -131,7 +136,7 @@ matches the Python the wrapper picked up.
 
 ## Links
 
-- Source code: <https://github.com/AnitChaudhry/hrkit>
-- Issues: <https://github.com/AnitChaudhry/hrkit/issues>
-- User manual: <https://github.com/AnitChaudhry/hrkit/blob/main/USER-MANUAL.md>
-- Architecture: <https://github.com/AnitChaudhry/hrkit/blob/main/docs/ARCHITECTURE.md>
+- Source code: <https://github.com/AnitChaudhry/HRKit>
+- Issues: <https://github.com/AnitChaudhry/HRKit/issues>
+- User manual: <https://github.com/AnitChaudhry/HRKit/blob/main/USER-MANUAL.md>
+- Architecture: <https://github.com/AnitChaudhry/HRKit/blob/main/docs/ARCHITECTURE.md>

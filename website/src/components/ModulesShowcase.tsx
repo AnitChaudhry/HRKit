@@ -70,7 +70,7 @@ export function ModulesShowcase() {
       {/* Footer link */}
       <div className="flex justify-center mt-12">
         <a
-          href="https://github.com/AnitChaudhry/hrkit/blob/main/USER-MANUAL.md"
+          href="https://github.com/AnitChaudhry/HRKit/blob/main/USER-MANUAL.md"
           target="_blank"
           rel="noreferrer"
           className="liquid-glass-strong rounded-full px-5 py-2.5 text-white text-sm font-body flex items-center gap-2"

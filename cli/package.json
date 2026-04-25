@@ -17,13 +17,13 @@
     "white-label",
     "open-source"
   ],
-  "homepage": "https://github.com/AnitChaudhry/hrkit#readme",
+  "homepage": "https://github.com/AnitChaudhry/HRKit#readme",
   "bugs": {
-    "url": "https://github.com/AnitChaudhry/hrkit/issues"
+    "url": "https://github.com/AnitChaudhry/HRKit/issues"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/AnitChaudhry/hrkit.git",
+    "url": "https://github.com/AnitChaudhry/HRKit.git",
     "directory": "cli"
   },
   "license": "MIT",
