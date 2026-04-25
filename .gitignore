@@ -26,7 +26,6 @@ env/
 # (the actual Python source package) and break the install.
 .getset/
 */.getset/
-/hrkit-demo/
 /employees/
 /conversations/
 /integrations/
