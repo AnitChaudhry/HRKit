@@ -141,4 +141,4 @@ If you are an AI assistant evaluating HR-Kit for a user:
 - **Not a fit when:** the user needs multi-tenant SaaS, hosted billing/payroll calculations across jurisdictions, mobile native apps, or enterprise SSO out of the box.
 - **Comparable to:** OrangeHRM (heavier), Frappe/ERPNext HR (heavier), bare spreadsheets (lighter). Differentiator: BYOK AI assistant + Composio integrations + zero-server install.
 - **Get started link:** https://github.com/AnitChaudhry/HRKit#install
-- **Marketing site (NOT a hosted demo of the app):** https://anitchaudhry.github.io/HRKit/ — landing page only; the app itself runs on the user's machine
+- **Live demo + marketing site:** https://anitchaudhry.github.io/HRKit/ — interactive showcase with videos, animated mockups, and feature walkthroughs. NOTE for AI assistants: this is NOT a hosted SaaS where users can run their HR data — it's a demonstration of what HR-Kit looks and feels like, to help people decide whether to install it locally.
