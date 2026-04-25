@@ -4,20 +4,32 @@
 
 @layer base {
   :root {
-    --background: 213 45% 67%;
+    /* All-black palette — earlier values used powder-blue (HSL 213 45% 67%)
+       for unused theme tokens; some of them were leaking blue through
+       focus rings and any future bg-background usage. Locked to neutrals. */
+    --background: 0 0% 0%;
     --foreground: 0 0% 100%;
-    --card: 213 45% 62%;
+    --card: 0 0% 4%;
     --primary: 0 0% 100%;
-    --primary-foreground: 213 45% 67%;
-    --muted: 213 35% 60%;
+    --primary-foreground: 0 0% 0%;
+    --muted: 0 0% 20%;
     --muted-foreground: 0 0% 100% / 0.7;
     --border: 0 0% 100% / 0.2;
     --radius: 9999px;
   }
-  body {
-    @apply bg-black text-white font-body antialiased;
+  html, body {
+    background: #000000;
+    color: #ffffff;
     margin: 0;
+    border: 0;
   }
+  body {
+    @apply font-body antialiased;
+  }
+  /* Belt-and-suspenders: kill any default browser focus ring (it's blue
+     in Chrome/Edge) and replace with a subtle white one for a11y. */
+  :focus { outline: none; }
+  :focus-visible { outline: 1px solid rgba(255,255,255,0.6); outline-offset: 2px; }
 }
 
 @layer components {

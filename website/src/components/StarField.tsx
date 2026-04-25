@@ -187,11 +187,11 @@ export default function StarField() {
         height: '100vh',
         zIndex: 0,
         pointerEvents: 'none',
-        // Subtle radial vignette gradient drawn under the canvas.
-        background:
-          'radial-gradient(ellipse at 50% 30%, rgba(99,102,241,0.10), transparent 55%),' +
-          'radial-gradient(ellipse at 80% 80%, rgba(236,72,153,0.06), transparent 50%),' +
-          '#08090a',
+        // Pure black backdrop. Earlier this had indigo + pink radial gradients
+        // for atmosphere; they were leaking a faint blue tint near the top
+        // edge of the viewport, which read as a stray blue line on a
+        // black-only design. Stars supply all the visual interest.
+        background: '#000000',
       }}
     />
   );
