@@ -16,9 +16,10 @@ const HRKIT_PIP_NAME = process.env.HRKIT_PIP_NAME || 'hrkit';
 const HRKIT_GIT_URL =
   process.env.HRKIT_GIT_URL ||
   'git+https://github.com/AnitChaudhry/HRKit.git';
-// Until hrkit is published to PyPI, install straight from GitHub by default.
-// Set HRKIT_INSTALL_SOURCE=pypi to use `pip install hrkit` instead.
-const HRKIT_INSTALL_SOURCE = process.env.HRKIT_INSTALL_SOURCE || 'git';
+// Default to PyPI now that `hrkit` is published there. Set
+// HRKIT_INSTALL_SOURCE=git to install from the GitHub main branch instead
+// (useful for testing unreleased features).
+const HRKIT_INSTALL_SOURCE = process.env.HRKIT_INSTALL_SOURCE || 'pypi';
 const MIN_PYTHON_MAJOR = 3;
 const MIN_PYTHON_MINOR = 10;
 
