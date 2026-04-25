@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+    <meta name="theme-color" content="#08090a" />
+
+    <!-- Primary SEO -->
+    <title>HR-Kit — Open-Source Local HR Software for Small Teams (Free, MIT)</title>
+    <meta name="description" content="HR-Kit is a free, open-source HR app that runs entirely on your laptop. Python + SQLite, BYOK AI assistant, Composio integrations for Gmail / Drive / Slack. No Docker, no servers, no monthly fee. MIT licensed." />
+    <meta name="keywords" content="open source HR software, local HR app, self-hosted HRMS, free HR software, HR-Kit, HRKit, Python HR app, SQLite HR, Composio HR, AI HR assistant, recruitment kanban, BYOK AI" />
+    <meta name="author" content="ThinqMesh" />
+    <meta name="robots" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+    <link rel="canonical" href="https://anitchaudhry.github.io/HRKit/" />
+
+    <!-- Favicons + manifest -->
+    <link rel="icon" type="image/svg+xml" href="/HRKit/favicon.svg" />
+    <link rel="apple-touch-icon" href="/HRKit/favicon.svg" />
+    <link rel="manifest" href="/HRKit/manifest.webmanifest" />
+
+    <!-- Open Graph -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="HR-Kit" />
+    <meta property="og:title" content="HR-Kit — Open-Source Local HR Software" />
+    <meta property="og:description" content="The HR app that lives on your laptop. Python + SQLite, BYOK AI, Composio integrations. Free, MIT licensed, runs offline." />
+    <meta property="og:url" content="https://anitchaudhry.github.io/HRKit/" />
+    <meta property="og:image" content="https://anitchaudhry.github.io/HRKit/favicon.svg" />
+    <meta property="og:locale" content="en_US" />
+
+    <!-- Twitter / X -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="HR-Kit — Open-Source Local HR Software" />
+    <meta name="twitter:description" content="The HR app that lives on your laptop. Python + SQLite, BYOK AI, Composio integrations. Free, MIT licensed, runs offline." />
+    <meta name="twitter:image" content="https://anitchaudhry.github.io/HRKit/favicon.svg" />
+
+    <!-- Performance hints -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Barlow:wght@300;400;500;600&display=swap" rel="stylesheet" />
+
+    <!-- Discoverability for AI / agentic search (llms.txt convention) -->
+    <link rel="alternate" type="text/plain" title="Project summary for LLMs" href="/HRKit/llms.txt" />
+    <link rel="alternate" type="text/plain" title="Extended project spec for LLMs" href="/HRKit/llms-full.txt" />
+
+    <!-- JSON-LD structured data for rich Google results -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "SoftwareApplication",
+      "name": "HR-Kit",
+      "alternateName": "HRKit",
+      "applicationCategory": "BusinessApplication",
+      "applicationSubCategory": "HumanResourcesApplication",
+      "operatingSystem": "Windows, macOS, Linux",
+      "softwareVersion": "0.2.0",
+      "url": "https://anitchaudhry.github.io/HRKit/",
+      "downloadUrl": "https://github.com/AnitChaudhry/HRKit",
+      "license": "https://opensource.org/licenses/MIT",
+      "isAccessibleForFree": true,
+      "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+      "description": "Open-source, local-first HR software. Python + SQLite, BYOK AI assistant, Composio integrations. Runs entirely on the user's laptop with no Docker or external services. MIT licensed.",
+      "featureList": [
+        "Employee directory with custom fields and HR notes",
+        "Drag-drop recruitment kanban",
+        "Leave, attendance, payroll, performance, onboarding modules",
+        "BYOK AI chat assistant (OpenRouter or Upfyn)",
+        "Composio integrations (Gmail, Calendar, Drive, Slack, Notion, +200 apps)",
+        "Local-folder mirror for emails, files, calendar events",
+        "Per-employee folder layout (human-browsable)",
+        "Built-in web search and web fetch tools for the AI",
+        "User-defined named action recipes"
+      ],
+      "creator": { "@type": "Organization", "name": "ThinqMesh", "url": "https://thinqmesh.com" },
+      "codeRepository": "https://github.com/AnitChaudhry/HRKit",
+      "programmingLanguage": ["Python", "TypeScript"],
+      "runtimePlatform": "Python 3.10+"
+    }
+    </script>
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "WebSite",
+      "name": "HR-Kit",
+      "url": "https://anitchaudhry.github.io/HRKit/",
+      "potentialAction": {
+        "@type": "SearchAction",
+        "target": "https://github.com/AnitChaudhry/HRKit/search?q={search_term_string}",
+        "query-input": "required name=search_term_string"
+      }
+    }
+    </script>
+  </head>
+  <body>
+    <div id="root">
+      <!-- Crawler-friendly fallback so search engines index real content even without JS execution. -->
+      <noscript>
+        <main style="font-family:system-ui,sans-serif;max-width:760px;margin:60px auto;padding:24px;line-height:1.55;color:#333">
+          <h1>HR-Kit — Open-Source Local HR Software</h1>
+          <p>HR-Kit is a free, open-source HR application that runs entirely on a single laptop. Built with Python and SQLite, it ships with 11 HR modules (employees, recruitment kanban, leave, payroll, performance, onboarding, exits, documents, attendance, departments, roles), a bring-your-own-key AI assistant, and Composio integrations for Gmail, Calendar, Drive, Slack, and 200+ other apps.</p>
+          <p>This page requires JavaScript for the interactive demo. Visit the <a href="https://github.com/AnitChaudhry/HRKit">GitHub repository</a> for source code and installation instructions.</p>
+          <h2>Install</h2>
+          <pre>pip install hrkit
+hrkit init my-workspace
+hrkit serve</pre>
+        </main>
+      </noscript>
+    </div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

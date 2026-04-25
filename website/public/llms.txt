@@ -1,0 +1,26 @@
+# HR-Kit
+
+> Open-source, local-first HR software. Runs on a single laptop with Python and SQLite — no Docker, no MariaDB, no Redis. Bring-your-own-key AI assistant (OpenRouter or Upfyn). Composio integrations let any HR person wire Gmail, Calendar, Drive, Slack and 200+ other apps to their workspace through OAuth, with all fetched data mirrored to human-browsable folders on disk.
+
+HR-Kit gives small teams a complete HR system that lives entirely on the user's machine: 11 modules (Employees, Departments, Roles, Documents, Leave, Attendance, Payroll, Performance, Onboarding, Exits, Recruitment), a drag-drop recruitment kanban, a built-in AI chat assistant with full read/write access to HR data via tool-calling, and a unified per-employee folder layout that any human can open in Explorer/Finder and edit by hand.
+
+## Quickstart
+
+- `pip install hrkit` then `hrkit init <dir>` then `hrkit serve` opens the app at http://127.0.0.1:8765
+- Optional `hrkit seed` loads canonical sample data so the UI isn't empty on first open
+- Optional `npx @thinqmesh/hrkit serve` runs the app via the npm wrapper without a manual pip install
+
+## Docs
+
+- [README](https://github.com/AnitChaudhry/HRKit/blob/main/README.md): top-level project overview, features, screenshots
+- [USER-MANUAL](https://github.com/AnitChaudhry/HRKit/blob/main/USER-MANUAL.md): end-user guide for HR teams
+- [AGENTS_SPEC](https://github.com/AnitChaudhry/HRKit/blob/main/AGENTS_SPEC.md): module contract for contributors
+- [WEBSITE_SPEC](https://github.com/AnitChaudhry/HRKit/blob/main/WEBSITE_SPEC.md): marketing site spec
+- [llms-full.txt](https://anitchaudhry.github.io/HRKit/llms-full.txt): extended machine-readable spec for AI agents
+
+## Optional
+
+- [GitHub repo](https://github.com/AnitChaudhry/HRKit)
+- [Contributing guide](https://github.com/AnitChaudhry/HRKit/blob/main/CONTRIBUTING.md)
+- [Changelog](https://github.com/AnitChaudhry/HRKit/blob/main/CHANGELOG.md)
+- [License (MIT)](https://github.com/AnitChaudhry/HRKit/blob/main/LICENSE)

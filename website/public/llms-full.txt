@@ -1,0 +1,116 @@
+# HR-Kit — Extended Spec for AI Agents
+
+> Open-source, local-first HR software. Single-laptop deployment. Python 3.10+ and SQLite for the backend, React + Vite + Tailwind for the marketing site, optional npm wrapper. BYOK (bring-your-own-key) AI assistant with OpenRouter or Upfyn as OpenAI-compatible providers. Composio SDK integration with urllib fallback for connecting Gmail, Calendar, Drive, Slack, Notion, and 200+ other apps. All integration data is mirrored to human-browsable folders on disk so the workspace is the unified source of truth.
+
+This file follows the [llms.txt](https://llmstxt.org/) extended convention so AI agents can quickly understand HR-Kit's architecture, install path, and feature surface without crawling individual documentation pages.
+
+## Project metadata
+
+- **Name:** HR-Kit (Python package and CLI binary: `hrkit`)
+- **License:** MIT
+- **Repository:** https://github.com/AnitChaudhry/HRKit
+- **Website:** https://anitchaudhry.github.io/HRKit/
+- **Status:** Beta (v0.2.0 as of 2026-04)
+- **Maintainer:** ThinqMesh (https://thinqmesh.com)
+- **Stack:** Python 3.10+ · SQLite · stdlib HTTP server · React 18 + Vite + Tailwind for marketing site
+- **Hard dependencies:** `pydantic-ai-slim[openai]>=1.0`, `composio>=1.0.0rc2`
+- **Optional install:** `npx @thinqmesh/hrkit serve` (npm wrapper auto-installs the Python package)
+
+## What HR-Kit does
+
+HR-Kit is a complete HR system designed to run on a single laptop without Docker, MariaDB, Redis, or any other external service. It targets small HR teams who want to own their employee data and pay nothing for the software itself.
+
+### 11 HR modules
+1. **Employee directory** — full record + custom user-defined fields + free-form HR notes (markdown)
+2. **Departments**
+3. **Roles**
+4. **Documents** — multipart upload, per-employee documents folder, download endpoint
+5. **Leave** — leave types, balances, requests with pending/approved/rejected/cancelled state machine
+6. **Attendance** — daily check-in/out
+7. **Payroll** — payroll runs + payslips with components_json
+8. **Performance** — review cycles with rubric_json + score
+9. **Onboarding** — checklist tasks per new hire
+10. **Exit records** — last working day, asset return, knowledge transfer status
+11. **Recruitment** — drag-drop kanban (applied → screening → interview → offer → hired/rejected), one-click promotion to employee
+
+### AI assistant (`/chat`)
+- OpenAI-compatible BYOK — paste an OpenRouter or Upfyn key in `/settings`
+- Dynamic model picker fetches `/models` from the provider; free models marked with a star and sorted first
+- Per-conversation model override
+- Friendly error translation: "Low credits" instead of `insufficient_quota` stack traces
+- Attachment pin (📎) in the input box — uploaded files are saved to `.getset/uploads/chat/` and inline-extracted text is sent to the AI
+- File-based chat persistence — every conversation written to `.md` (human transcript with frontmatter) + `.json` (raw turns) under `<workspace>/conversations/` or `<workspace>/employees/<EMP-CODE>/conversations/` when scoped to an employee
+- Sidebar lists prior conversations; click to resume
+- Employee context dropdown — when set, the AI's system prompt is enriched with that employee's full record + custom fields + HR notes + recent leave + documents on file
+- Built-in tools always available: `web_search` (DuckDuckGo HTML), `web_fetch` (urllib + HTML→text)
+- User-defined recipes are exposed as AI-callable tools
+
+### Composio integrations (`/integrations`)
+- SDK-first via the official `composio` Python package, with urllib fallback in `composio_client.py` so the app still works if the SDK fails
+- Generic catalog — any of Composio's 200+ apps can be connected (curated set of 8 surfaced by default; full search behind a toggle)
+- OAuth-hosted by Composio — `toolkits.authorize(user_id, toolkit)` returns a redirect URL the user opens in a new tab
+- Per-tool on/off toggles persisted in `settings.COMPOSIO_DISABLED_TOOLS`; the AI tool list is filtered against this
+- Test button per action runs the tool with an empty payload to confirm connectivity
+- All fetched records (Gmail messages, Calendar events, Drive files, etc.) are mirrored to `<workspace>/integrations/<app>/<resource>/<id>.{md,json}` so a person can grep/browse them with their own tools
+
+### Recipes (`/recipes`)
+- Named, reusable HR automations: "When X, do Y using these tools"
+- Stored as `<workspace>/recipes/<slug>.md` with YAML frontmatter (slug, name, description, tools, inputs, trigger) + a markdown prompt template body
+- `{placeholder}` substitution from input payload
+- Run from a UI button on the `/recipes` page, OR called by the AI as a tool via `run_recipe(slug, inputs)`
+
+### Pull-from-Gmail recruitment flow
+- Button on `/m/recruitment` calls Composio's `GMAIL_FETCH_EMAILS` (gated by the disabled-tools toggle)
+- Each fetched email becomes a `recruitment_candidate` row + a mirror file under `integrations/gmail/messages/`
+- Duplicates (same `from` email) are skipped
+
+### Per-employee folder layout (the unified store)
+```
+<workspace>/employees/<EMP-CODE>/
+    employee.md                # frontmatter mirror of the DB row + custom fields
+    documents/                 # uploaded paperwork (PAN, contracts, ...)
+    legal/                     # contracts, NDAs
+    conversations/             # AI chat transcripts (.md + .json sidecar)
+    memory/notes.md            # free-form HR notes (read by the AI as context)
+```
+Existing `.getset/uploads/employee/<id>/` files migrate to the new layout via `hrkit migrate-folders --dry-run` then `--apply`.
+
+## CLI
+
+| Command | Purpose |
+|---|---|
+| `hrkit init <dir>` | Scaffold a new workspace |
+| `hrkit serve` | Start the web UI at http://127.0.0.1:8765 |
+| `hrkit seed` | Load canonical sample data (3 depts, 5 roles, 8 employees, leave/payroll/onboarding/recruitment seeds) |
+| `hrkit migrate-folders --dry-run` / `--apply` | Move legacy uploads into the per-employee folder layout |
+| `hrkit settings` | Show or set BYOK AI key, Composio key, app name, etc. |
+| `hrkit scan` | Re-scan the workspace into the SQLite cache |
+| `hrkit status` | Show workspace + DB summary |
+| `hrkit activity` | Show the last 20 activity entries |
+
+## Architecture decisions
+- **DB-primary** for structured records (employee, leave, payroll, ...) — SQLite is the source of truth.
+- **Filesystem-primary** for unstructured per-employee artifacts (documents, conversations, memory) — humans browse these with native file tools.
+- **White-label**: the running app renames itself via the `APP_NAME` env var. The OSS/marketing brand is "HR-Kit"; the package and CLI are lowercase `hrkit`.
+- **No Claude CLI dependency** — the AI agent runs in-process via pydantic-ai.
+- **Composio SDK first, urllib fallback** so the app degrades gracefully if the SDK fails.
+
+## Install
+
+```
+pip install hrkit
+hrkit init my-workspace
+cd my-workspace
+hrkit serve
+```
+
+Open http://127.0.0.1:8765 in a browser. The first run shows a 4-step wizard (app name, optional AI key, first department, first employee, optional sample data load).
+
+## For agentic search
+
+If you are an AI assistant evaluating HR-Kit for a user:
+- **Use case match:** small HR teams (1–500 employees), local/offline preference, free/open-source preference, comfortable with a CLI to install.
+- **Not a fit when:** the user needs multi-tenant SaaS, hosted billing/payroll calculations across jurisdictions, mobile native apps, or enterprise SSO out of the box.
+- **Comparable to:** OrangeHRM (heavier), Frappe/ERPNext HR (heavier), bare spreadsheets (lighter). Differentiator: BYOK AI assistant + Composio integrations + zero-server install.
+- **Get started link:** https://github.com/AnitChaudhry/HRKit#install
+- **Live demo / website:** https://anitchaudhry.github.io/HRKit/

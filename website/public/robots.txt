@@ -1,0 +1,56 @@
+# robots.txt for HR-Kit (https://anitchaudhry.github.io/HRKit/)
+# Open-source HR app — fully indexable by search engines and AI agents.
+
+User-agent: *
+Allow: /
+
+# Explicitly welcome AI crawlers used by agentic search and assistants.
+User-agent: GPTBot
+Allow: /
+
+User-agent: ChatGPT-User
+Allow: /
+
+User-agent: anthropic-ai
+Allow: /
+
+User-agent: ClaudeBot
+Allow: /
+
+User-agent: Claude-Web
+Allow: /
+
+User-agent: PerplexityBot
+Allow: /
+
+User-agent: Google-Extended
+Allow: /
+
+User-agent: Bytespider
+Allow: /
+
+User-agent: CCBot
+Allow: /
+
+User-agent: Applebot
+Allow: /
+
+User-agent: Applebot-Extended
+Allow: /
+
+User-agent: Bingbot
+Allow: /
+
+User-agent: DuckDuckBot
+Allow: /
+
+User-agent: YandexBot
+Allow: /
+
+# Pointers for crawlers and LLMs.
+Sitemap: https://anitchaudhry.github.io/HRKit/sitemap.xml
+
+# Project-specific machine-readable summary (Anthropic / llms.txt convention).
+# https://llmstxt.org/
+# /llms.txt — short overview
+# /llms-full.txt — extended overview with full feature list and architecture

@@ -1,0 +1,57 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+*.egg
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Virtualenvs
+.venv/
+venv/
+env/
+
+# Workspace runtime data — these are per-user and must never go in source.
+.getset/
+*/.getset/
+hrkit-demo/
+employees/
+conversations/
+integrations/
+recipes/
+
+# Node (website + npm wrapper)
+node_modules/
+.next/
+.nuxt/
+.cache/
+.parcel-cache/
+.vite/
+website/dist/
+cli/node_modules/
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# Local secrets
+.env
+.env.local
+.env.*.local
+
+# Personal session notes (not for the public repo)
+NEXT_SESSION.md

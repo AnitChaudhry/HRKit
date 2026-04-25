@@ -1,0 +1,53 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hrkit"
+version = "0.2.0"
+description = "Local-first HR app with BYOK AI agent loop and SQLite-backed modules."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [
+    { name = "Thinqmesh", email = "tools@openanalyst.com" },
+]
+keywords = ["hr", "kanban", "sqlite", "byok", "pydantic-ai", "local-first"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Office/Business",
+]
+dependencies = [
+    "pydantic-ai-slim[openai]>=1.0",
+    "composio>=1.0.0rc2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4",
+]
+
+[project.scripts]
+hrkit = "hrkit.cli:main"
+
+[project.urls]
+Homepage = "https://thinqmesh.com"
+Source = "https://github.com/thinqmesh/hrkit"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+include = ["hrkit*"]
+exclude = ["tests*"]
+
+[tool.setuptools.package-data]
+hrkit = ["migrations/*.sql", "templates/*.html", "static/*"]

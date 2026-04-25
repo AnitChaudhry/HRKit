@@ -1,0 +1,52 @@
+{
+  "name": "@thinqmesh/hrkit",
+  "version": "0.1.0",
+  "description": "Local, white-label, AI-augmented HR app. One Python package, one SQLite file, no SaaS. This npm wrapper bootstraps and runs HR-Kit so users who only know npm can `npx @thinqmesh/hrkit serve`.",
+  "keywords": [
+    "hr",
+    "hris",
+    "hrms",
+    "human-resources",
+    "payroll",
+    "leave",
+    "attendance",
+    "recruitment",
+    "ai",
+    "local-first",
+    "self-hosted",
+    "white-label",
+    "open-source"
+  ],
+  "homepage": "https://github.com/AnitChaudhry/hrkit#readme",
+  "bugs": {
+    "url": "https://github.com/AnitChaudhry/hrkit/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/AnitChaudhry/hrkit.git",
+    "directory": "cli"
+  },
+  "license": "MIT",
+  "author": "HR-Kit contributors",
+  "type": "commonjs",
+  "main": "lib/index.js",
+  "bin": {
+    "hrkit": "bin/hrkit.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "files": [
+    "bin/hrkit.js",
+    "lib/bootstrap.js",
+    "lib/index.js",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "test": "node lib/__tests__/run.js"
+  }
+}
