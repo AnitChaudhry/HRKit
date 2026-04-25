@@ -21,13 +21,16 @@ venv/
 env/
 
 # Workspace runtime data — these are per-user and must never go in source.
+# IMPORTANT: anchor with a leading slash so the rule only matches at the repo
+# root. Without the slash, "integrations/" would also exclude hrkit/integrations/
+# (the actual Python source package) and break the install.
 .getset/
 */.getset/
-hrkit-demo/
-employees/
-conversations/
-integrations/
-recipes/
+/hrkit-demo/
+/employees/
+/conversations/
+/integrations/
+/recipes/
 
 # Node (website + npm wrapper)
 node_modules/
