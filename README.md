@@ -56,32 +56,51 @@ Each module gets its own page under `/m/<module>` and CRUD JSON API at
 
 ## Install
 
-Two equivalent paths — pick whichever ecosystem you live in.
+Three equivalent paths — pick whichever ecosystem you live in.
+
+| Channel | Command | When to use |
+|---|---|---|
+| **PyPI** | `pip install hrkit` | You have Python 3.10+ already; you want the smallest footprint |
+| **npm** | `npx @thinqmesh/hrkit serve` | You're a Node user; the wrapper transparently runs `pip install hrkit` for you on first use |
+| **GitHub Release** | download wheel/sdist from [v0.2.1](https://github.com/AnitChaudhry/HRKit/releases/tag/v0.2.1) and `pip install ./hrkit-*.whl` | Air-gapped machine, or you want a frozen version pinned to disk |
+
+### From PyPI (recommended for Python users)
+
+```bash
+pip install hrkit
+```
+
+The package is published at <https://pypi.org/project/hrkit/>. After install,
+the `hrkit` CLI is on your `$PATH`.
 
 ### From npm (recommended for non-Python users)
 
 ```bash
-# Run with npx (no global install — installs Python deps on first run)
+# Run with npx (no global install — auto-installs the Python package on first run)
 npx @thinqmesh/hrkit serve
 
-# Or install the wrapper globally and forget about it
+# Or install the wrapper globally
 npm install -g @thinqmesh/hrkit
 hrkit serve
 ```
 
 The npm package [`@thinqmesh/hrkit`](https://www.npmjs.com/package/@thinqmesh/hrkit)
 is a tiny Node.js shim (under 200 lines) that detects Python ≥ 3.10 on your
-machine, `pip install`s the actual app on first run, and forwards every
-command to the underlying Python CLI. You still need Python installed; the
-shim just hides `pip` from view.
+machine, `pip install`s the actual app from PyPI on first run, and forwards
+every command to the underlying Python CLI. You still need Python installed;
+the shim just hides `pip` from view.
 
-### From pip (recommended for Python users)
+### From a GitHub Release (offline / pinned)
 
 ```bash
-pip install hrkit                         # once published to PyPI
-# or, until then:
-pip install git+https://github.com/AnitChaudhry/HRKit.git
+# Pick the asset URL from https://github.com/AnitChaudhry/HRKit/releases
+pip install https://github.com/AnitChaudhry/HRKit/releases/download/v0.2.1/hrkit-0.2.1-py3-none-any.whl
 ```
+
+> **Need more detail?** [`docs/INSTALL.md`](docs/INSTALL.md) covers
+> prerequisites, upgrade paths, and troubleshooting. The whole docs
+> tree is at [`docs/`](docs/) — Quickstart, AI chat, integrations,
+> recipes, releasing.
 
 ## Five-step setup (the promise)
 

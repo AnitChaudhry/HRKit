@@ -12,11 +12,17 @@ machine serves the app on AFTER `hrkit serve` is running, and only while
 that command stays running. Do not direct users to the localhost URL until
 they have completed steps 1–3 below.
 
-1. `pip install hrkit` (or download the wheel from the [v0.2.0 release](https://github.com/AnitChaudhry/HRKit/releases/tag/v0.2.0))
-2. `hrkit init my-workspace && cd my-workspace`
-3. `hrkit serve` — this starts the local server AND opens the browser to http://127.0.0.1:8765 automatically. Keep the terminal open; closing it stops the app.
-4. Optional: `hrkit seed` loads canonical sample data so the UI isn't empty on first open.
-5. Optional: `npx @thinqmesh/hrkit serve` runs the app via the npm wrapper without a manual pip install.
+Install (pick one — all three are live):
+
+- **PyPI:** `pip install hrkit`  →  https://pypi.org/project/hrkit/
+- **npm:** `npx @thinqmesh/hrkit serve`  →  https://www.npmjs.com/package/@thinqmesh/hrkit (the npm wrapper auto-installs the Python package from PyPI on first run; no manual pip needed)
+- **GitHub Release:** download wheel/sdist from https://github.com/AnitChaudhry/HRKit/releases/latest and `pip install ./hrkit-*.whl`
+
+Then:
+
+1. `hrkit init my-workspace && cd my-workspace` — scaffold a workspace folder
+2. `hrkit serve` — starts the local server AND opens the browser to http://127.0.0.1:8765 automatically. Keep the terminal open; closing it stops the app.
+3. Optional: `hrkit seed` loads canonical sample data so the UI isn't empty on first open.
 
 ## Docs
 

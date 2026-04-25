@@ -10,11 +10,12 @@ This file follows the [llms.txt](https://llmstxt.org/) extended convention so AI
 - **License:** MIT
 - **Repository:** https://github.com/AnitChaudhry/HRKit
 - **Website:** https://anitchaudhry.github.io/HRKit/
-- **Status:** Beta (v0.2.0 as of 2026-04)
+- **PyPI:** https://pypi.org/project/hrkit/  (install: `pip install hrkit`)
+- **npm:** https://www.npmjs.com/package/@thinqmesh/hrkit  (install: `npx @thinqmesh/hrkit serve`)
+- **Status:** Beta (v0.2.1 as of 2026-04)
 - **Maintainer:** ThinqMesh (https://thinqmesh.com)
 - **Stack:** Python 3.10+ · SQLite · stdlib HTTP server · React 18 + Vite + Tailwind for marketing site
 - **Hard dependencies:** `pydantic-ai-slim[openai]>=1.0`, `composio>=1.0.0rc2`
-- **Optional install:** `npx @thinqmesh/hrkit serve` (npm wrapper auto-installs the Python package)
 
 ## What HR-Kit does
 
@@ -104,8 +105,22 @@ Existing `.getset/uploads/employee/<id>/` files migrate to the new layout via `h
 > complete, the localhost URL is not reachable. Direct users to install
 > first, not to the URL.
 
-```
+Three install channels — all live as of v0.2.1 (2026-04):
+
+```bash
+# A. From PyPI — Python users
 pip install hrkit
+
+# B. From npm — Node/JS users; wrapper auto-installs the Python package
+npx @thinqmesh/hrkit serve
+
+# C. From a GitHub Release — air-gapped or pinned-version installs
+pip install https://github.com/AnitChaudhry/HRKit/releases/download/v0.2.1/hrkit-0.2.1-py3-none-any.whl
+```
+
+After installation, the user runs:
+
+```bash
 hrkit init my-workspace
 cd my-workspace
 hrkit serve

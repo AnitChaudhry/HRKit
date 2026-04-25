@@ -20,14 +20,23 @@ You need Python 3.10 or later. Verify:
 python --version
 ```
 
-Install your HR app from PyPI (or the wheel your IT desk hands you):
+Install HR-Kit. Pick whichever channel fits you:
 
 ```bash
-pip install your-hr-app
+# A. From PyPI — Python users
+pip install hrkit
+
+# B. From npm — Node/JS users (the wrapper auto-installs the Python
+#    package on first invoke; no manual pip needed)
+npx @thinqmesh/hrkit serve
+
+# C. From a GitHub Release — air-gapped / pinned versions
+pip install https://github.com/AnitChaudhry/HRKit/releases/download/v0.2.1/hrkit-0.2.1-py3-none-any.whl
 ```
 
-The install registers a single console script - call it `<app>` from any
-shell. The only Python dependency added is `pydantic-ai-slim[openai]`.
+The install registers a single console script - call it `<app>` (or
+`hrkit` by default) from any shell. The Python dependencies are
+`pydantic-ai-slim[openai]` and `composio`.
 
 ### Step 2 - Create a workspace folder
 

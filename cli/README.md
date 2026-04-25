@@ -36,8 +36,8 @@ That's it. The wrapper will:
 
 1. Detect a Python 3.10+ interpreter on your system.
 2. Check whether the `hrkit` Python package is installed.
-3. If not, prompt to `pip install` it (from GitHub by default; PyPI once
-   the package is published there).
+3. If not, run `pip install hrkit` from PyPI (override the source with
+   `HRKIT_INSTALL_SOURCE=git` if you want the GitHub `main` branch instead).
 4. Forward your command to `python -m hrkit <args>`.
 
 When `npx @thinqmesh/hrkit` is run with **no arguments**, it defaults to
@@ -85,7 +85,7 @@ These tune how this npm wrapper bootstraps Python:
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `HRKIT_PYTHON` | (auto-detected) | Absolute path to a specific Python interpreter to use |
-| `HRKIT_INSTALL_SOURCE` | `git` | Where to install from. `git` = GitHub source; `pypi` = `pip install hrkit` once the package ships to PyPI |
+| `HRKIT_INSTALL_SOURCE` | `pypi` | Where to install from. `pypi` = `pip install hrkit` (default); `git` = `pip install` from the GitHub `main` branch (useful for testing unreleased features) |
 | `HRKIT_PIP_NAME` | `hrkit` | Override the PyPI distribution name |
 | `HRKIT_GIT_URL` | `git+https://github.com/AnitChaudhry/HRKit.git` | Override the GitHub install URL |
 

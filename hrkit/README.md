@@ -89,6 +89,13 @@ Resume link, notes, interview feedback, etc.
 > local address the server binds to once started; it is not a hosted demo
 > and stops working as soon as you stop the server.
 
+**Install** (any one):
+
+```bash
+pip install hrkit                  # PyPI
+npx @thinqmesh/hrkit serve         # npm wrapper
+```
+
 **Windows one-click:** double-click `start-hrkit.bat` in the workspace root.
 It starts the local server on `http://127.0.0.1:8765/` and opens your
 browser to it. Keep the console window open — closing it stops the app.
