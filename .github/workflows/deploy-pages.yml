@@ -36,8 +36,6 @@ jobs:
           cache-dependency-path: website/package-lock.json
       - run: npm ci
       - run: npm run build
-        env:
-          VITE_BASE: /HRKit/
       - name: Disable Jekyll
         run: touch dist/.nojekyll
       - uses: actions/upload-pages-artifact@v3
