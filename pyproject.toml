@@ -44,10 +44,14 @@ Source = "https://github.com/thinqmesh/hrkit"
 
 [tool.setuptools]
 include-package-data = true
-
-[tool.setuptools.packages.find]
-include = ["hrkit*"]
-exclude = ["tests*"]
+# Explicit list — avoids editable-install ambiguity over which sub-packages
+# get exposed by setuptools' lenient finder.
+packages = [
+    "hrkit",
+    "hrkit.integrations",
+    "hrkit.migrations",
+    "hrkit.modules",
+]
 
 [tool.setuptools.package-data]
 hrkit = ["migrations/*.sql", "templates/*.html", "static/*"]
