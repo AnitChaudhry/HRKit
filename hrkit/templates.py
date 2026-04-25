@@ -1939,7 +1939,13 @@ def render_task(task: Folder, parent_position: Folder, attachments: list[str],
     kv_rows.append(kv("Status", task.status))
     kv_rows.append(kv("Priority", task.priority))
     if task.tags:
-        kv_rows.append(f'<dt>Tags</dt><dd>{"".join(f"<span class=\'tag\' style=\'margin-right:4px\'>{_e(t)}</span>" for t in task.tags)}</dd>')
+        # Build tag spans separately so the f-string expression has no backslashes
+        # (PEP 701 allows them on 3.12+, but our CI matrix still tests 3.10/3.11).
+        tag_html = "".join(
+            '<span class="tag" style="margin-right:4px">' + _e(t) + '</span>'
+            for t in task.tags
+        )
+        kv_rows.append(f'<dt>Tags</dt><dd>{tag_html}</dd>')
     for k, v in md.items():
         if k in ("name", "status", "priority", "tags", "type"):
             continue
