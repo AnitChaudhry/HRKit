@@ -99,7 +99,7 @@ export function Hero() {
             Built on the shoulders of
           </span>
           <div className="flex flex-wrap items-center justify-center gap-x-12 gap-y-4 md:gap-x-16 mt-6">
-            {['Python', 'SQLite', 'PydanticAI', 'Composio', 'OpenRouter'].map((name) => (
+            {['Python', 'SQLite', 'PydanticAI', 'Composio', 'OpenRouter', 'Upfyn AI'].map((name) => (
               <span
                 key={name}
                 className="text-2xl md:text-3xl font-heading italic text-white/90"

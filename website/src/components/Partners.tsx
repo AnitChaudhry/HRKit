@@ -1,7 +1,7 @@
 // Trusted-by / built-on bar — sits in the dark section between Hero and the
 // rest of the page so the white text never collides with hero video imagery.
 
-const STACK = ['Python', 'SQLite', 'PydanticAI', 'Composio', 'OpenRouter'];
+const STACK = ['Python', 'SQLite', 'PydanticAI', 'Composio', 'OpenRouter', 'Upfyn AI'];
 
 export function Partners() {
   return (
