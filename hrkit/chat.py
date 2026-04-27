@@ -226,15 +226,108 @@ def _build_query_tool(conn) -> Callable[..., str]:
     return query_records
 
 
+def _build_imported_table_tools(conn) -> list[Callable[..., str]]:
+    """Return read-only tools that let the agent see CSV-imported tables.
+
+    These are local-only by construction: every call goes through
+    :func:`hrkit.modules.csv_import.safe_select` which refuses any name
+    outside the ``imported_*`` sandbox and uses parameterized queries.
+    Returned even in LOCAL-ONLY mode because they don't touch the network.
+    """
+    try:
+        from .modules import csv_import as csv_mod
+    except Exception:  # noqa: BLE001 — module missing, no tools
+        return []
+
+    def list_imported_tables() -> str:
+        """List every CSV-imported table available for analysis.
+
+        Returns plain text: one line per table with row count + columns.
+        Use this first to discover what data exists, then call
+        ``describe_imported_table(name)`` to see the column types, and
+        ``query_imported_table(name, ...)`` to read rows.
+        """
+        try:
+            tables = csv_mod.list_imported_tables(conn)
+        except Exception as exc:  # noqa: BLE001
+            return f"error: {exc}"
+        if not tables:
+            return "no imported tables yet (upload a CSV at /m/csv_import)"
+        return "\n".join(
+            f"- {t['table_name']}: {t['rows']} rows; columns: {t['columns']}"
+            for t in tables)
+
+    def describe_imported_table(name: str) -> str:
+        """Return the column schema (name + SQL type) of an imported table.
+
+        Args:
+          name: table name, must start with ``imported_``.
+        """
+        try:
+            desc = csv_mod.describe_table(conn, name)
+        except Exception as exc:  # noqa: BLE001
+            return f"error: {exc}"
+        if desc is None:
+            return f"error: no imported table named {name!r}"
+        cols = ", ".join(f"{c['name']} {c['type']}" for c in desc["columns"])
+        return f"{desc['table_name']} ({desc['rows']} rows): {cols}"
+
+    def query_imported_table(name: str,
+                             columns: list | None = None,
+                             where: dict | None = None,
+                             limit: int = 50) -> str:
+        """Read rows from an imported table with safe parameterized SELECT.
+
+        Args:
+          name: imported table name (must start with ``imported_``).
+          columns: list of column names to return; ``None`` for all columns.
+          where: dict of ``{column: value}``, ANDed with ``=``. Validated
+                 against the table's schema.
+          limit: max rows to return (capped at 1000, default 50).
+
+        Returns a JSON string ``{columns, rows, total}`` or an error string
+        prefixed with ``error:``. Refuses any name outside the sandbox.
+        """
+        try:
+            result = csv_mod.safe_select(
+                conn, name,
+                columns=list(columns) if columns else None,
+                where=dict(where) if where else None,
+                limit=int(limit),
+            )
+        except (ValueError, TypeError) as exc:
+            return f"error: {exc}"
+        except Exception as exc:  # noqa: BLE001
+            return f"error: {type(exc).__name__}: {exc}"
+        import json
+        return json.dumps(result, default=str, ensure_ascii=False)
+
+    return [list_imported_tables, describe_imported_table, query_imported_table]
+
+
 def _build_system_prompt(conn=None) -> str:
     modules = ", ".join(_allowed_modules(conn))
-    return (
+    local_only = branding.ai_local_only(conn)
+    base = (
         f"You are an HR assistant for {branding.app_name()}. "
         "Use the query_records tool to read or modify HR data. "
         f"Modules available: {modules}. "
-        "You also have web_search(query) and web_fetch(url) for live web lookups. "
+        "Use list_imported_tables() / describe_imported_table(name) / "
+        "query_imported_table(name, columns, where, limit) to read any CSV "
+        "the user has imported into this workspace. "
         "Always confirm actions before deleting. "
         "When listing, return a short summary, not the full JSON."
+    )
+    if local_only:
+        return base + (
+            " You are running in LOCAL-ONLY mode: every tool you have access "
+            "to reads from this workspace's SQLite database or local files. "
+            "You have NO ability to fetch or post anything to the public "
+            "internet, send email, post to chat, or call any external API. "
+            "Do not pretend to. If a question requires web data, say so."
+        )
+    return base + (
+        " You also have web_search(query) and web_fetch(url) for live web lookups."
     )
 
 
@@ -360,8 +453,13 @@ async def handle_chat_message(handler, body: dict[str, Any]) -> None:
             if row and row["employee_code"]:
                 employee_code_for_save = str(row["employee_code"]).strip() or None
         tool = _build_query_tool(conn)
-        # web tools + module CRUD + user-defined recipes (each as a callable).
-        tools: list = [tool, *ai_tools.builtin_tools()]
+        # Module CRUD is always available. Web tools are gated behind the
+        # AI_LOCAL_ONLY setting (default ON) so HR data never leaves the
+        # local process unless the operator explicitly opts the agent into
+        # network tools. Recipes are user-defined templates and are local.
+        tools: list = [tool, *_build_imported_table_tools(conn)]
+        if not branding.ai_local_only(conn):
+            tools.extend(ai_tools.builtin_tools())
         if workspace_root is not None:
             try:
                 tools.extend(recipes_ui.build_recipe_tools(conn, workspace_root))

@@ -179,7 +179,69 @@ def create_row(conn: sqlite3.Connection, data: dict[str, Any]) -> int:
                 pass
         raise
 
-    return int(ins.lastrowid)
+    new_id = int(ins.lastrowid)
+    # Auto-compute the F&F breakdown when the exit is processed at create-time.
+    # Skipped silently if data is incomplete (e.g. no hire_date or salary).
+    if processed_at:
+        _auto_settle_fnf(conn, new_id, employee_id,
+                         last_working_day=data.get("last_working_day") or "",
+                         notice_period_days=notice_period,
+                         override_bonuses_minor=int(data.get("bonuses_minor") or 0),
+                         override_deductions_minor=int(data.get("deductions_minor") or 0))
+    return new_id
+
+
+def _auto_settle_fnf(conn: sqlite3.Connection, exit_record_id: int,
+                     employee_id: int, *,
+                     last_working_day: str,
+                     notice_period_days: int = 0,
+                     override_bonuses_minor: int = 0,
+                     override_deductions_minor: int = 0) -> dict[str, Any] | None:
+    """Best-effort F&F auto-compute. Never raises; returns the breakdown
+    on success, ``None`` if anything was missing. Caller is the create_row
+    happy path — failures must not break the exit insert."""
+    try:
+        from . import f_and_f
+        emp = conn.execute(
+            "SELECT salary_minor, hire_date FROM employee WHERE id = ?",
+            (int(employee_id),)
+        ).fetchone()
+        if not emp:
+            return None
+        hire_date = (emp["hire_date"] or "").strip()
+        salary_minor = int(emp["salary_minor"] or 0)
+        if not hire_date or not last_working_day or salary_minor <= 0:
+            log.debug("F&F auto-settle skipped for exit=%s: missing data", exit_record_id)
+            return None
+        years = f_and_f._years_between(hire_date, last_working_day)
+        # Sum unused leave days across leave_balance rows for the year of exit.
+        try:
+            year = int((last_working_day or "")[:4])
+        except (TypeError, ValueError):
+            year = 0
+        unused_leave_days = 0
+        if year:
+            row = conn.execute(
+                "SELECT COALESCE(SUM(MAX(allotted - used - pending, 0)), 0) AS d "
+                "FROM leave_balance WHERE employee_id = ? AND year = ?",
+                (int(employee_id), year)
+            ).fetchone()
+            if row and row["d"] is not None:
+                unused_leave_days = max(0, int(row["d"]))
+        breakdown = f_and_f.calculate_fnf(
+            monthly_salary_minor=salary_minor,
+            years_of_service=years,
+            unused_leave_days=unused_leave_days,
+            bonuses_minor=int(override_bonuses_minor or 0),
+            deductions_minor=int(override_deductions_minor or 0),
+            notice_period_days_unserved=0,
+        )
+        f_and_f.settle(conn, int(exit_record_id), breakdown)
+        return breakdown
+    except Exception as exc:  # noqa: BLE001 - sidecar must not break exit creation
+        log.warning("F&F auto-settle failed for exit_record %s: %s",
+                    exit_record_id, exc)
+        return None
 
 
 def update_row(conn: sqlite3.Connection, item_id: int, data: dict[str, Any]) -> None:

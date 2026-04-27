@@ -95,7 +95,12 @@ def create_leave_type(conn: sqlite3.Connection, *, name: str, code: str = "",
 def create_leave_request(conn: sqlite3.Connection, *, employee_id: int,
                          leave_type_id: int, start_date: str, end_date: str,
                          reason: str = "") -> int:
-    """Insert a leave_request with status='pending' and auto-calculated days."""
+    """Insert a leave_request with status='pending' and auto-calculated days.
+
+    Also seeds the ``approval`` table with the employee's default approver
+    chain (direct manager → HR approver) so the cross-module approval
+    queue can show this request alongside expenses / advances.
+    """
     days = _calc_days(start_date, end_date)
     cur = conn.execute(
         "INSERT INTO leave_request "
@@ -104,12 +109,28 @@ def create_leave_request(conn: sqlite3.Connection, *, employee_id: int,
         (int(employee_id), int(leave_type_id), start_date, end_date, days, reason),
     )
     conn.commit()
-    return int(cur.lastrowid)
+    request_id = int(cur.lastrowid)
+    try:
+        from . import approval as approval_mod
+        chain = approval_mod.default_approver_chain(conn, int(employee_id))
+        if chain:
+            approval_mod.request_approvals(
+                conn, request_type="leave",
+                request_id=request_id, approver_ids=chain)
+    except Exception as exc:  # noqa: BLE001 - never break the create on a sidecar
+        log.warning("approval.request_approvals failed for leave %s: %s",
+                    request_id, exc)
+    return request_id
 
 
 def set_status(conn: sqlite3.Connection, request_id: int, *, status: str,
                approver_id: int | None = None) -> bool:
-    """Transition a leave_request to a new status. Returns True on success."""
+    """Transition a leave_request to a new status. Returns True on success.
+
+    When the new status is ``approved`` or ``rejected`` the corresponding
+    pending rows in the ``approval`` table are also flipped, keeping the
+    cross-module approval queue in sync.
+    """
     if status not in _VALID_STATUS:
         return False
     conn.execute(
@@ -118,6 +139,15 @@ def set_status(conn: sqlite3.Connection, request_id: int, *, status: str,
         (status, approver_id, _now_ist(), _now_ist(), int(request_id)),
     )
     conn.commit()
+    if status in ("approved", "rejected"):
+        try:
+            from . import approval as approval_mod
+            approval_mod.reflect_request_outcome(
+                conn, request_type="leave",
+                request_id=int(request_id), outcome=status)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("approval.reflect_request_outcome failed for leave %s: %s",
+                        request_id, exc)
     return True
 
 

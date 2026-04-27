@@ -65,6 +65,8 @@ Anything that materially fights one of those four moats lives here, not in `hrki
 
 ---
 
+---
+
 ## How to graduate a Tier D item
 
 1. Open an issue describing which moat constraint has changed.

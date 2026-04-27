@@ -4,6 +4,90 @@ All notable changes to HR-Kit are documented here. Format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.1.0] — 2026-04-27
+
+Phase-2 expansion: 23 new modules covering the gaps vs Frappe HRMS, Odoo HR,
+and Horilla. Feature parity now ≥ those three on every HR-shaped module that
+fits the local-first / single-process moat. Architecture-level features
+(mobile, LDAP/SSO, biometric, geofencing, i18n, ERPNext hook, scheduled
+backups) are deferred — see `docs/ROADMAP.md`.
+
+### Added — Tier A (16 + 2 HR-adjacent new modules)
+- **Helpdesk** — employee support tickets with priority, assignee, resolution
+- **Asset** — equipment register + assignment history (assign / return)
+- **Skill** — skill catalog + per-employee level (beginner → expert), endorsements
+- **Shift** — work shifts (timing + days) with employee assignments
+- **Referral** — employee referrals + bonus tracking
+- **Expense** — expense reports + reimbursement tracking, with categories
+- **Survey** — pulse / feedback surveys with 5 question types, anonymous mode,
+  public take-the-survey form
+- **Goal** — OKR / KRA tracking with cascaded parent-goal hierarchy + progress %
+- **Holiday calendar** — multi-region/department holiday calendars
+- **Audit log** — read-only compliance log + `audit_log.record()` API for hooks
+- **Promotion** — promotions / transfers / lateral moves with apply-to-employee
+- **Self-evaluation** — employee fills own review (strengths / areas / rating)
+- **Course** — eLearning catalog + per-employee enrollment + completion
+- **Coaching** — 1:1 mentor/mentee sessions with agenda + action items
+- **Vehicle (Fleet)** — company vehicles + employee assignment + mileage
+- **Meal (Lunch)** — cafeteria menu + employee meal orders
+- **Project** — projects with per-project timesheet entries (HR-adjacent)
+- **Timesheet** — cross-project timesheet view + approval queue (HR-adjacent)
+
+### Added — Tier B (payroll / approvals / exit extensions)
+Tier B is **wired end-to-end** into the existing v1.0 flows. Each helper is
+called automatically; the standalone CRUD pages remain for inspection /
+manual override.
+- **Tax slab + payroll_component.** `payroll.generate_payslips()` now looks
+  up the most recent matching `tax_slab.fy_start` for the configured
+  country / regime (settings keys `PAYROLL_TAX_COUNTRY` / `PAYROLL_TAX_REGIME`,
+  defaults `IN` / `new`), calls `tax_slab.compute_tax_minor()` against the
+  annual income, and emits one `payroll_component` row per line (basic
+  earning + income tax + advance EMIs). `payslip.deductions_minor` and
+  `net_minor` now reflect the computed tax.
+- **Salary advance auto-deducted from payroll.** Approved or disbursed
+  advances with a `repayment_schedule` of the form
+  `{"emi_minor": N, "remaining_minor": M}` get one EMI deducted per
+  payroll run. The schedule is updated in-place; the advance flips to
+  `repaid` automatically when remaining hits zero.
+- **Approval engine wired into leave / expense / salary_advance / promotion.**
+  `leave.create_leave_request`, `expense.create_row` (when status is
+  `submitted`), `salary_advance.create_row`, and `promotion.create_row`
+  all call `approval.request_approvals()` to seed the cross-module queue
+  using `approval.default_approver_chain(employee_id)` — direct manager
+  → optional `HR_APPROVER_ID` setting. When the bespoke status field on
+  any of these flips to approved/rejected, `approval.reflect_request_outcome()`
+  mirrors that onto the pending approval rows. The `/m/approval` queue
+  thus shows everything in one place, while the per-module pages still
+  work as before.
+- **Exit auto-computes F&F.** `exit_record.create_row()` now runs
+  `f_and_f.calculate_fnf()` automatically using the employee's hire date,
+  current salary, accrued leave (summed across `leave_balance` for the
+  exit year), and Indian-default gratuity formula (≥ 5 years tenure). The
+  breakdown is written into `exit_record.f_and_f_breakdown_json` /
+  `gratuity_minor` / `f_and_f_amount_minor` / `f_and_f_settled_at`. The
+  manual `/m/f_and_f/<id>` page still works for adjustments.
+- `payroll_run.is_off_cycle` + `run_type` columns added (manual flagging
+  via the existing payroll API today; UI toggle deferred).
+- `payroll_component` rows are now populated by every payslip generation,
+  giving downstream reporting tools a normalized per-line breakdown
+  (groupable by component name and type).
+
+### Added — Tier C (Composio integrations)
+- **e-Sign** — signature requests via Composio (DocuSign / HelloSign / Dropbox
+  Sign) or manual mode
+- New Composio handlers: `create_calendar_event_for_onboarding`,
+  `create_calendar_event_for_coaching`, `send_signature_request`
+- New event hooks: `onboarding.task_created`, `coaching.session_scheduled`,
+  `e_sign.request_created`
+
+### Schema
+- Migration `002_phase2_modules.sql`: 26 new tables + 6 ALTER TABLE columns
+  on existing tables. Idempotent — safe to re-apply on existing v1.0 DBs.
+
+### Roadmap (deferred)
+- See `docs/ROADMAP.md` for mobile, LDAP/SSO, biometric, geofencing, i18n,
+  ERPNext, scheduled backups — and why each is deferred rather than built.
+
 ## [1.0.0] — 2026-04-26
 
 First stable release. Two big shifts since 0.2.1:

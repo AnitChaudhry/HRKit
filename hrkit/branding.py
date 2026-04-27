@@ -36,6 +36,10 @@ ENV_VAR_FOR_KEY = {
     "AI_API_KEY": "AI_API_KEY",
     "AI_MODEL": "AI_MODEL",
     "COMPOSIO_API_KEY": "COMPOSIO_API_KEY",
+    # When '1' / 'true' / 'on' (default), the AI agent is sandboxed to local
+    # data only — no web_search/web_fetch, no network-touching tools. Anything
+    # in the agent's tool list must read from the SQLite DB or local files.
+    "AI_LOCAL_ONLY": "AI_LOCAL_ONLY",
 }
 
 
@@ -142,6 +146,18 @@ def ai_base_url(conn: sqlite3.Connection | None) -> str:
 def composio_api_key(conn: sqlite3.Connection | None) -> str:
     """Return the Composio API key, or empty string if not configured."""
     return _read(conn, "COMPOSIO_API_KEY", "")
+
+
+def ai_local_only(conn: sqlite3.Connection | None) -> bool:
+    """Return True when the AI agent must be sandboxed to local data.
+
+    Default: True (safest — HR data is sensitive). Flip to False only when
+    the user explicitly opts the agent into web tools / network actions.
+    Reads ``AI_LOCAL_ONLY`` from env var first, then settings, then default.
+    Truthy values: '1', 'true', 'on', 'yes' (case-insensitive).
+    """
+    raw = _read(conn, "AI_LOCAL_ONLY", "1")
+    return str(raw).strip().lower() in ("1", "true", "on", "yes")
 
 
 COMPOSIO_DISABLED_TOOLS_KEY = "COMPOSIO_DISABLED_TOOLS"

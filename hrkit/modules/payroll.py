@@ -133,16 +133,145 @@ def create_run(
     return int(cur.lastrowid)
 
 
+def _fy_start_for_period(conn: sqlite3.Connection, period: str,
+                         country: str, regime: str) -> str:
+    """Pick the most recent ``tax_slab.fy_start`` <= the run's first day for
+    the given country+regime. Falls back to '' (no slab match) if none."""
+    if not period:
+        return ""
+    first_day = f"{period}-01"  # period is YYYY-MM
+    row = conn.execute(
+        "SELECT fy_start FROM tax_slab "
+        "WHERE country = ? AND regime = ? AND fy_start <> '' AND fy_start <= ? "
+        "ORDER BY fy_start DESC LIMIT 1",
+        (country, regime, first_day),
+    ).fetchone()
+    return row["fy_start"] if row else ""
+
+
+def _payroll_tax_settings(conn: sqlite3.Connection) -> tuple[str, str]:
+    """Read PAYROLL_TAX_COUNTRY / PAYROLL_TAX_REGIME from the settings table.
+    Defaults to IN / new."""
+    country = "IN"
+    regime = "new"
+    try:
+        rows = conn.execute(
+            "SELECT key, value FROM settings WHERE key IN "
+            "('PAYROLL_TAX_COUNTRY', 'PAYROLL_TAX_REGIME')"
+        ).fetchall()
+        for r in rows:
+            if r["key"] == "PAYROLL_TAX_COUNTRY" and r["value"]:
+                country = str(r["value"]).strip()
+            elif r["key"] == "PAYROLL_TAX_REGIME" and r["value"]:
+                regime = str(r["value"]).strip()
+    except sqlite3.Error:
+        pass
+    return country, regime
+
+
+def _open_advances_for(conn: sqlite3.Connection,
+                       employee_id: int) -> list[dict[str, Any]]:
+    """Return approved/disbursed salary_advance rows for an employee with
+    a parseable repayment_schedule that still has remaining balance."""
+    rows = conn.execute(
+        "SELECT id, amount_minor, status, repayment_schedule "
+        "FROM salary_advance "
+        "WHERE employee_id = ? AND status IN ('approved', 'disbursed') "
+        "ORDER BY id",
+        (int(employee_id),),
+    ).fetchall()
+    out: list[dict[str, Any]] = []
+    for r in rows:
+        raw = r["repayment_schedule"] or "{}"
+        try:
+            schedule = json.loads(raw) if isinstance(raw, str) else dict(raw)
+        except (TypeError, ValueError):
+            continue
+        if not isinstance(schedule, dict):
+            continue
+        emi = int(schedule.get("emi_minor") or 0)
+        remaining = schedule.get("remaining_minor")
+        if remaining is None:
+            # First-time deduction — start from full advance amount.
+            remaining = int(r["amount_minor"] or 0)
+        else:
+            remaining = int(remaining)
+        if emi <= 0 or remaining <= 0:
+            continue
+        out.append({
+            "id": int(r["id"]),
+            "emi_minor": emi,
+            "remaining_minor": remaining,
+            "schedule": schedule,
+        })
+    return out
+
+
+def _apply_advance_repayment(conn: sqlite3.Connection, advance_id: int,
+                             schedule: dict[str, Any], deducted_minor: int,
+                             new_remaining: int) -> None:
+    """Persist the updated repayment_schedule and flip status to 'repaid' if done."""
+    schedule = dict(schedule or {})
+    schedule["remaining_minor"] = max(0, int(new_remaining))
+    schedule["last_deducted_minor"] = int(deducted_minor)
+    schedule["last_deducted_at"] = _now_ist()
+    if new_remaining <= 0:
+        conn.execute(
+            "UPDATE salary_advance SET repayment_schedule = ?, status = 'repaid' "
+            "WHERE id = ?",
+            (json.dumps(schedule), int(advance_id)),
+        )
+    else:
+        conn.execute(
+            "UPDATE salary_advance SET repayment_schedule = ? WHERE id = ?",
+            (json.dumps(schedule), int(advance_id)),
+        )
+
+
+def _emit_component(conn: sqlite3.Connection, payslip_id: int, *,
+                    name: str, type_: str, amount_minor: int,
+                    calculation: str = "") -> None:
+    """Insert one payroll_component row."""
+    conn.execute(
+        "INSERT INTO payroll_component (payslip_id, name, type, amount_minor, calculation) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (int(payslip_id), name, type_, int(amount_minor), calculation or ""),
+    )
+
+
 def generate_payslips(conn: sqlite3.Connection, run_id: int) -> int:
     """Create payslip rows for every active employee.
 
-    Basic version per AGENTS_SPEC.md Section 9: gross = employee.salary_minor,
-    deductions = 0, net = gross. Wave 2 refines components.
-    Returns the number of payslips inserted (rows already present are kept).
+    Per-employee flow:
+      1. Earnings: ``employee.salary_minor`` becomes one ``basic`` component
+         (extend by adding more earning components in the future).
+      2. Tax: monthly tax = annual_tax / 12, where annual_tax is computed
+         via :func:`hrkit.modules.tax_slab.compute_tax_minor` against the
+         most recent matching ``fy_start`` for the configured country /
+         regime (defaults: IN / new). If no slabs are configured tax is 0.
+      3. Salary-advance repayment: any approved / disbursed
+         ``salary_advance`` for this employee with a ``repayment_schedule``
+         like ``{"emi_minor": N, "remaining_minor": M}`` is deducted
+         (clamped to remaining), the schedule is updated, and the advance
+         flips to ``repaid`` once remaining hits 0.
+      4. ``payslip.deductions_minor`` is the sum of tax + EMI; ``net_minor``
+         = gross − deductions; ``components_json`` retains a JSON snapshot
+         for legacy callers, and individual ``payroll_component`` rows are
+         emitted for queryable per-line breakdown.
+
+    Idempotent: payslips already present (UNIQUE(payroll_run_id,
+    employee_id)) are skipped — components and advance deductions are NOT
+    re-applied for them. Returns the number of new payslips inserted.
     """
+    from . import tax_slab as tax_slab_mod  # local import to avoid cycles
+
     run = get_run(conn, run_id)
     if run is None:
         raise ValueError(f"payroll_run {run_id} not found")
+
+    period = str(run.get("period") or "")
+    country, regime = _payroll_tax_settings(conn)
+    fy_start = _fy_start_for_period(conn, period, country, regime)
 
     employees = conn.execute(
         "SELECT id, salary_minor FROM employee WHERE status = 'active' ORDER BY id"
@@ -152,21 +281,89 @@ def generate_payslips(conn: sqlite3.Connection, run_id: int) -> int:
     for emp in employees:
         emp_id = int(emp["id"])
         gross = int(emp["salary_minor"] or 0)
-        components = json.dumps({"basic": gross}, separators=(",", ":"))
+
+        # Compute monthly tax from annual income.
+        if fy_start and gross > 0:
+            try:
+                annual_tax = tax_slab_mod.compute_tax_minor(
+                    conn,
+                    annual_income_minor=gross * 12,
+                    country=country, regime=regime, fy_start=fy_start,
+                )
+                monthly_tax = int(round(annual_tax / 12))
+            except Exception as exc:  # noqa: BLE001
+                log.warning("tax_slab.compute_tax_minor failed for emp=%s: %s",
+                            emp_id, exc)
+                monthly_tax = 0
+        else:
+            monthly_tax = 0
+
+        # Find advance EMIs to deduct on this run.
+        advances = _open_advances_for(conn, emp_id)
+        emi_total = 0
+        emi_breakdown: list[dict[str, Any]] = []
+        for adv in advances:
+            take = min(adv["emi_minor"], adv["remaining_minor"])
+            if take <= 0:
+                continue
+            emi_total += take
+            emi_breakdown.append({
+                "advance_id": adv["id"],
+                "emi_minor": take,
+                "remaining_after": adv["remaining_minor"] - take,
+                "schedule": adv["schedule"],
+            })
+
+        deductions = max(0, monthly_tax) + max(0, emi_total)
+        net = max(0, gross - deductions)
+        components = {"basic": gross}
+        if monthly_tax:
+            components["income_tax"] = -monthly_tax
+        if emi_total:
+            components["advance_repayment"] = -emi_total
+
         try:
-            conn.execute(
+            cur = conn.execute(
                 """
                 INSERT INTO payslip(
                     payroll_run_id, employee_id, gross_minor,
                     deductions_minor, net_minor, components_json
-                ) VALUES (?, ?, ?, 0, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (int(run_id), emp_id, gross, gross, components),
+                (int(run_id), emp_id, gross, deductions, net,
+                 json.dumps(components, separators=(",", ":"))),
             )
-            inserted += 1
         except sqlite3.IntegrityError:
             # UNIQUE(payroll_run_id, employee_id) — already generated.
             log.debug("payslip exists for run=%s emp=%s", run_id, emp_id)
+            continue
+
+        payslip_id = int(cur.lastrowid)
+        # Emit one component per line so /api/m/payroll can serve a queryable
+        # breakdown (also lets reporting tools group by component name).
+        _emit_component(conn, payslip_id,
+                        name="basic", type_="earning",
+                        amount_minor=gross,
+                        calculation="employee.salary_minor")
+        if monthly_tax:
+            _emit_component(conn, payslip_id,
+                            name="income_tax", type_="tax",
+                            amount_minor=monthly_tax,
+                            calculation=(f"compute_tax_minor(annual={gross*12}, "
+                                         f"country={country}, regime={regime}, "
+                                         f"fy_start={fy_start})/12"))
+        for line in emi_breakdown:
+            _emit_component(conn, payslip_id,
+                            name=f"advance_repayment_#{line['advance_id']}",
+                            type_="deduction",
+                            amount_minor=line["emi_minor"],
+                            calculation=f"salary_advance #{line['advance_id']} EMI")
+            _apply_advance_repayment(
+                conn, line["advance_id"], line["schedule"],
+                deducted_minor=line["emi_minor"],
+                new_remaining=line["remaining_after"])
+
+        inserted += 1
     conn.commit()
     return inserted
 

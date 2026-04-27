@@ -26,16 +26,31 @@ from . import config as cfg
 log = logging.getLogger(__name__)
 
 ALL_MODULES: tuple[str, ...] = (
-    "department", "employee", "role", "document",
+    # Core
+    "department", "employee", "role",
+    # v1.0
+    "document",
     "leave", "attendance",
     "payroll", "performance",
     "onboarding", "exit_record",
     "recruitment",
+    # v1.1 Tier A
+    "helpdesk", "asset", "skill", "shift", "referral", "expense",
+    "survey", "goal", "holiday_calendar", "audit_log", "promotion",
+    "self_evaluation", "course", "coaching", "vehicle", "meal",
+    "project", "timesheet",
+    # v1.1 Tier B
+    "salary_advance", "approval", "tax_slab", "f_and_f",
+    # v1.1 Tier C
+    "e_sign",
+    # v1.1 Data tools
+    "csv_import", "csv_export",
 )
 
 ALWAYS_ON: frozenset[str] = frozenset({"department", "employee", "role"})
 
 MODULE_REQUIRES: dict[str, frozenset[str]] = {
+    # Core / v1.0
     "department":  frozenset(),
     "employee":    frozenset({"department", "role"}),
     "role":        frozenset({"department"}),
@@ -47,6 +62,35 @@ MODULE_REQUIRES: dict[str, frozenset[str]] = {
     "onboarding":  frozenset({"employee"}),
     "exit_record": frozenset({"employee"}),
     "recruitment": frozenset(),
+    # v1.1 Tier A
+    "helpdesk":         frozenset({"employee"}),
+    "asset":            frozenset({"employee"}),
+    "skill":            frozenset({"employee"}),
+    "shift":            frozenset({"employee"}),
+    "referral":         frozenset({"employee"}),
+    "expense":          frozenset({"employee"}),
+    "survey":           frozenset(),
+    "goal":             frozenset({"employee"}),
+    "holiday_calendar": frozenset(),
+    "audit_log":        frozenset(),
+    "promotion":        frozenset({"employee", "role", "department"}),
+    "self_evaluation":  frozenset({"employee"}),
+    "course":           frozenset({"employee"}),
+    "coaching":         frozenset({"employee"}),
+    "vehicle":          frozenset({"employee"}),
+    "meal":             frozenset({"employee"}),
+    "project":          frozenset({"employee"}),
+    "timesheet":        frozenset({"employee", "project"}),
+    # v1.1 Tier B
+    "salary_advance":   frozenset({"employee"}),
+    "approval":         frozenset({"employee"}),
+    "tax_slab":         frozenset(),
+    "f_and_f":          frozenset({"employee", "exit_record"}),
+    # v1.1 Tier C
+    "e_sign":           frozenset({"employee"}),
+    # v1.1 Data tools
+    "csv_import":       frozenset(),
+    "csv_export":       frozenset(),
 }
 
 DB_KEY = "ENABLED_MODULES"
