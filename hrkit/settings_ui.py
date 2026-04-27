@@ -310,9 +310,17 @@ def render_settings_page(conn) -> str:
   const providerEl = document.getElementById("ai_provider");
   const modelEl = document.getElementById("ai_model");
 
-  // Refetch the model catalog when the provider changes.
+  // Refetch the model catalog when the provider changes. The previously
+  // saved model belongs to the OLD provider's catalog so it would silently
+  // break at chat time — clear data-current and reload, then auto-pick the
+  // first free model in the new catalog.
   providerEl.addEventListener("change", function() {{
-    setTimeout(function() {{ if (typeof loadModels === 'function') loadModels(); }}, 0);
+    modelEl.dataset.current = "";
+    modelEl.value = "";
+    const hintEl = document.getElementById("ai-model-hint");
+    if (hintEl) hintEl.textContent =
+      "Provider changed. Paste a key for this provider (if different) and click Test AI connection.";
+    setTimeout(function() {{ if (typeof loadModels === 'function') loadModels(true); }}, 0);
   }});
 
   function setStatus(id, ok, msg) {{
@@ -387,7 +395,7 @@ def render_settings_page(conn) -> str:
   // Models are grouped: FREE first (so non-tech HR users start free), then
   // PAID. OpenRouter exposes pricing per model so free detection is exact;
   // Upfyn doesn't separate yet, so all show under "Models".
-  async function loadModels() {{
+  async function loadModels(autoPickFirstFree) {{
     const sel = document.getElementById("ai_model");
     if (!sel) return;
     const hintEl = document.getElementById("ai-model-hint");
@@ -429,6 +437,12 @@ def render_settings_page(conn) -> str:
         opts.push('</optgroup>');
       }}
       sel.innerHTML = opts.join("");
+      // After a provider change there's no saved value for the new catalog;
+      // auto-pick the first free model so users land on something that works
+      // immediately without billing. (Mirrors the wizard's default-pick.)
+      if (autoPickFirstFree && !current && free.length) {{
+        sel.value = free[0].id;
+      }}
       const provider = j.provider || "provider";
       if (hintEl) {{
         if (free.length > 0) {{
@@ -520,6 +534,10 @@ def handle_save_settings(handler, body: dict) -> None:
         else:
             updates["app_name"] = name
 
+    # Track the new provider so we can require a fresh model selection on
+    # change. The old model belongs to the old provider's catalog and would
+    # silently break at chat time (e.g. OpenRouter slug on Upfyn).
+    new_provider: str | None = None
     if "ai_provider" in body:
         prov = str(body.get("ai_provider") or "").strip().lower()
         if prov not in _VALID_PROVIDERS:
@@ -528,11 +546,29 @@ def handle_save_settings(handler, body: dict) -> None:
             )
         else:
             updates["ai_provider"] = prov
+            new_provider = prov
 
     if "ai_model" in body:
         model = str(body.get("ai_model") or "").strip()
-        # Empty is allowed — caller wants the provider default.
+        # Empty is allowed when the provider isn't changing — caller wants the
+        # provider default. We re-check the cross-field rule below.
         updates["ai_model"] = model
+
+    # Cross-field rule: if the provider is being changed (and to a different
+    # value than what's currently saved), the request must include a model.
+    if new_provider is not None:
+        try:
+            current_provider = branding.ai_provider(_conn_for(handler))
+        except Exception:  # noqa: BLE001 — defensive; treat as "unknown"
+            current_provider = ""
+        if current_provider and new_provider != current_provider:
+            posted_model = str(body.get("ai_model") or "").strip()
+            if not posted_model:
+                errors.append(
+                    "ai_model is required when changing the AI provider — "
+                    "the previously saved model belongs to the old provider's "
+                    "catalog and won't work. Pick a model from the dropdown."
+                )
 
     # Secret fields: only persist if a non-empty value was sent. This lets the
     # form submit without re-entering the key each time.
