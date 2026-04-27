@@ -229,6 +229,46 @@ def test_step4_creates_department_and_returns_id(conn):
     assert row["code"] == "ENG"
 
 
+def test_step4_blank_code_inserts_empty_string_not_null(conn):
+    """Regression for the 'NOT NULL constraint failed: department.code' bug:
+    when the user leaves the optional code field blank, _step4 must pass an
+    empty string (not None) so the column DEFAULT '' applies cleanly."""
+    _ensure_settings_table(conn)
+    h = _FakeHandler(conn)
+    wizard.handle_wizard_step(h, {
+        "step": 4, "data": {"name": "Sales"},  # no code
+    })
+    code, payload = h.json_responses[0]
+    assert code == 200 and payload["ok"] is True
+    row = conn.execute(
+        "SELECT code FROM department WHERE name = 'Sales'"
+    ).fetchone()
+    assert row is not None
+    assert row["code"] == ""
+
+
+def test_step5_seed_only_skips_employee_validation(conn):
+    """When the user checks 'Load sample data' and leaves employee fields
+    blank, _step5 should accept that and just load the seeds — not raise
+    'employee_code required'. Regression for the wizard step-5 dead-end."""
+    _ensure_settings_table(conn)
+    # Required for seeds.load_sample_data — needs at least one department.
+    conn.execute("INSERT INTO department (name) VALUES ('Engineering')")
+    conn.commit()
+    h = _FakeHandler(conn)
+    wizard.handle_wizard_step(h, {
+        "step": 5,
+        "data": {"seed_sample_data": True},  # no employee fields
+    })
+    code, payload = h.json_responses[0]
+    assert code == 200 and payload["ok"] is True
+    assert payload.get("done") is True
+    # No employee_id because we didn't create one manually.
+    assert "employee_id" not in payload
+    # Sample data was loaded.
+    assert "seeded" in payload or "seed_error" in payload
+
+
 def test_step5_creates_employee_with_dept(conn):
     _ensure_settings_table(conn)
     dept_id = conn.execute(

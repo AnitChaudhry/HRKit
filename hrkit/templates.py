@@ -1079,9 +1079,11 @@ dialog button[type=submit]:hover{filter:brightness(1.05);background:var(--accent
   color:var(--accent);display:inline-flex;align-items:center;justify-content:center;
   font-size:16px;font-weight:700;margin-bottom:4px}
 
-.kanban{display:flex;gap:14px;overflow-x:auto;padding:4px 2px 14px;min-height:400px}
-.kanban-col{flex:0 0 280px;background:var(--panel-alt);border:1px solid var(--border);
-  border-radius:10px;display:flex;flex-direction:column;max-height:78vh}
+.kanban{display:flex;gap:14px;padding:4px 2px 14px;min-height:400px;flex-wrap:wrap}
+.kanban-col{flex:1 1 220px;min-width:0;background:var(--panel-alt);
+  border:1px solid var(--border);border-radius:10px;
+  display:flex;flex-direction:column;max-height:78vh}
+@media (max-width:1100px){.kanban{flex-wrap:nowrap;overflow-x:auto}}
 .kanban-col-head{padding:12px 14px;border-bottom:1px solid var(--border-soft);
   display:flex;align-items:center;gap:8px;font-weight:600;font-size:13px}
 .kanban-col-head .col-count{margin-left:auto;font-size:11px;color:var(--dim);
@@ -1778,6 +1780,7 @@ def render_module_page(*, title: str, nav_active: str, body_html: str) -> str:
 <meta charset="utf-8">
 <title>{_e(title)} &middot; {_e(name)}</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>{MODULE_CSS}</style>

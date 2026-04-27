@@ -111,6 +111,7 @@ def render_wizard_page(conn: sqlite3.Connection) -> str:
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Welcome &middot; {title}</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <style>
   /* Wizard uses the same token system as the rest of the app — light by
      default, dark via [data-theme="dark"] on <html>. */
@@ -297,19 +298,24 @@ def render_wizard_page(conn: sqlite3.Connection) -> str:
     <div class="row">
       <div>
         <label>Employee code</label>
-        <input name="employee_code" required placeholder="EMP-001">
+        <input name="employee_code" id="wiz-emp-code" required placeholder="EMP-001">
       </div>
       <div>
         <label>Full name</label>
-        <input name="full_name" required>
+        <input name="full_name" id="wiz-emp-name" required>
       </div>
     </div>
     <label>Email</label>
-    <input name="email" type="email" required>
+    <input name="email" id="wiz-emp-email" type="email" required>
     <label class="checkbox-row">
-      <input type="checkbox" name="seed_sample_data" value="1">
+      <input type="checkbox" name="seed_sample_data" id="wiz-seed-toggle" value="1">
       Load sample data so the app isn't empty on first open
     </label>
+    <div class="sub" id="wiz-seed-hint" style="margin-top:6px;display:none">
+      Sample data fills the workspace with a demo company (departments,
+      employees, leave, payroll). The fields above are optional when this
+      is checked &mdash; click Finish to skip them.
+    </div>
     <div class="actions">
       <span></span>
       <button type="submit" class="primary">Finish</button>
@@ -501,6 +507,28 @@ document.querySelectorAll('button.skip').forEach(btn => {{
     if (body.next_step) showStep(body.next_step);
   }});
 }});
+
+// Step 5 — when "Load sample data" is checked, employee fields become
+// optional. Drop the `required` attributes so the browser doesn't pop the
+// "Please fill out this field" tooltip when the user just wants demo data.
+(function() {{
+  const seedToggle = document.getElementById('wiz-seed-toggle');
+  const seedHint = document.getElementById('wiz-seed-hint');
+  const empFields = ['wiz-emp-code', 'wiz-emp-name', 'wiz-emp-email']
+    .map(id => document.getElementById(id))
+    .filter(Boolean);
+  if (!seedToggle || empFields.length === 0) return;
+  function sync() {{
+    const seeding = seedToggle.checked;
+    empFields.forEach(f => {{
+      if (seeding) f.removeAttribute('required');
+      else f.setAttribute('required', '');
+    }});
+    if (seedHint) seedHint.style.display = seeding ? '' : 'none';
+  }}
+  seedToggle.addEventListener('change', sync);
+  sync();
+}})();
 </script>
 </body>
 </html>
@@ -601,7 +629,10 @@ def _step4(conn: sqlite3.Connection, data: dict[str, Any]) -> dict[str, Any]:
     name = (data.get("name") or "").strip()
     if not name:
         raise ValueError("department name required")
-    code = (data.get("code") or "").strip() or None
+    # The schema is `code TEXT NOT NULL DEFAULT ''`, so an empty string is the
+    # right value when the user leaves the field blank. Passing None bypasses
+    # the column DEFAULT and trips the NOT NULL constraint.
+    code = (data.get("code") or "").strip()
     cur = conn.execute(
         "INSERT INTO department (name, code) VALUES (?, ?)",
         (name, code),
@@ -611,30 +642,50 @@ def _step4(conn: sqlite3.Connection, data: dict[str, Any]) -> dict[str, Any]:
 
 
 def _step5(conn: sqlite3.Connection, data: dict[str, Any]) -> dict[str, Any]:
+    """Final wizard step.
+
+    Three valid shapes:
+
+    1. ``seed_sample_data=False`` (default): user provides employee fields,
+       we insert one employee row.
+    2. ``seed_sample_data=True`` AND fields blank: skip the manual employee,
+       just load canonical sample data (fully populated demo workspace).
+    3. ``seed_sample_data=True`` AND fields filled: insert the employee AND
+       load the samples (so the user is included alongside the demo set).
+    """
     code = (data.get("employee_code") or "").strip()
     full_name = (data.get("full_name") or "").strip()
     email = (data.get("email") or "").strip()
-    if not code:
-        raise ValueError("employee_code required")
-    if not full_name:
-        raise ValueError("full_name required")
-    if not email:
-        raise ValueError("email required")
-    dept_id = data.get("department_id")
-    try:
-        dept_int = int(dept_id) if dept_id not in (None, "", 0) else None
-    except (TypeError, ValueError):
-        dept_int = None
-    cur = conn.execute(
-        "INSERT INTO employee (employee_code, full_name, email, department_id)"
-        " VALUES (?, ?, ?, ?)",
-        (code, full_name, email, dept_int),
-    )
-    conn.commit()
-    result: dict[str, Any] = {"done": True, "employee_id": int(cur.lastrowid)}
+    seed = bool(data.get("seed_sample_data"))
+    fields_provided = any((code, full_name, email))
 
-    # Optional: seed canonical sample data so first-runners see a populated app.
-    if data.get("seed_sample_data"):
+    # If the user is opting into sample data and didn't fill any field, that
+    # means "just give me the demo set" — don't trip the validation.
+    if not seed or fields_provided:
+        if not code:
+            raise ValueError("employee_code required")
+        if not full_name:
+            raise ValueError("full_name required")
+        if not email:
+            raise ValueError("email required")
+
+    result: dict[str, Any] = {"done": True}
+
+    if fields_provided:
+        dept_id = data.get("department_id")
+        try:
+            dept_int = int(dept_id) if dept_id not in (None, "", 0) else None
+        except (TypeError, ValueError):
+            dept_int = None
+        cur = conn.execute(
+            "INSERT INTO employee (employee_code, full_name, email, department_id)"
+            " VALUES (?, ?, ?, ?)",
+            (code, full_name, email, dept_int),
+        )
+        conn.commit()
+        result["employee_id"] = int(cur.lastrowid)
+
+    if seed:
         try:
             from . import seeds
             result["seeded"] = seeds.load_sample_data(conn)

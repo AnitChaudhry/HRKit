@@ -436,6 +436,9 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/healthz":
                 self._serve_healthz()
                 return
+            if path == "/favicon.svg" or path == "/favicon.ico":
+                self._serve_favicon()
+                return
             if path == "/settings":
                 self._html(200, settings_ui.render_settings_page(self.conn))
                 return
@@ -758,6 +761,22 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(data)))
         self.send_header("Cache-Control", "private, max-age=300")
         self.send_header("Content-Disposition", f'inline; filename="{filename}"')
+        self.end_headers()
+        self.wfile.write(data)
+
+    def _serve_favicon(self) -> None:
+        """Serve the bundled SVG favicon. Cache for one day."""
+        from importlib.resources import files
+        try:
+            data = files("hrkit").joinpath("static/favicon.svg").read_bytes()
+        except (FileNotFoundError, ModuleNotFoundError, OSError):
+            self.send_response(404)
+            self.end_headers()
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", "image/svg+xml")
+        self.send_header("Cache-Control", "public, max-age=86400")
+        self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)
 
