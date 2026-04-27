@@ -28,7 +28,7 @@ from pathlib import Path
 
 from hrkit import (
     ai, ai_tools, branding, chat_storage, composio_sdk,
-    employee_fs, recipes_ui, uploads,
+    employee_fs, recipes_ui, sandbox, uploads,
 )
 from hrkit.templates import render_module_page
 
@@ -453,24 +453,32 @@ async def handle_chat_message(handler, body: dict[str, Any]) -> None:
             if row and row["employee_code"]:
                 employee_code_for_save = str(row["employee_code"]).strip() or None
         tool = _build_query_tool(conn)
-        # Module CRUD is always available. Web tools are gated behind the
-        # AI_LOCAL_ONLY setting (default ON) so HR data never leaves the
-        # local process unless the operator explicitly opts the agent into
-        # network tools. Recipes are user-defined templates and are local.
-        tools: list = [tool, *_build_imported_table_tools(conn)]
-        if not branding.ai_local_only(conn):
-            tools.extend(ai_tools.builtin_tools())
+        # Build the candidate tool list, then run it through the sandbox
+        # filter. ``filter_tools`` is a no-op when AI_LOCAL_ONLY is off, and
+        # drops every network-touching tool (web_*, Composio actions, etc.)
+        # when it is on. Local-only is the default for this app.
+        tools: list = [tool, *_build_imported_table_tools(conn),
+                       *ai_tools.builtin_tools()]
         if workspace_root is not None:
             try:
                 tools.extend(recipes_ui.build_recipe_tools(conn, workspace_root))
             except Exception as exc:  # noqa: BLE001
                 log.warning("recipes_ui.build_recipe_tools failed: %s", exc)
+        tools = sandbox.filter_tools(tools, conn)
         model_override = (body.get("model") or "").strip() or None
 
         try:
-            reply = await ai.run_agent(
-                prompt, conn=conn, system=system, tools=tools, model=model_override,
-            )
+            # Belt-and-braces: even after filter_tools, wrap the agent run
+            # in network_disabled_if(conn) so any leftover HTTP call from
+            # within a tool raises NetworkBlocked instead of leaking data.
+            with sandbox.network_disabled_if(conn):
+                reply = await ai.run_agent(
+                    prompt, conn=conn, system=system, tools=tools,
+                    model=model_override,
+                )
+        except sandbox.NetworkBlocked as exc:
+            handler._json({"ok": False, "error": str(exc)}, code=403)
+            return
         except RuntimeError as exc:
             handler._json({"ok": False, "error": str(exc)}, code=502)
             return

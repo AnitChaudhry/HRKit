@@ -320,13 +320,31 @@ def render_settings_page(conn) -> str:
                  value="1"{ai_local_only_checked} style="width:auto">
           <span>Restrict the AI agent to local data only</span>
         </label>
-        <div class="hint">
-          When ON (default + recommended), the AI cannot reach the internet
-          or any external service. It only sees this workspace's SQLite
-          database, imported CSV tables, and local employee files. Turn
-          this OFF only if you want to grant the agent <code>web_search</code>
-          / <code>web_fetch</code> tools — note that doing so means the
-          model provider will receive HR context in its prompts.
+        <div class="hint" style="margin-top:8px">
+          When <strong>ON</strong> (default + recommended) the agent operates inside a
+          Python-level sandbox enforced at three layers:
+          <ul style="margin:6px 0 0 18px;padding:0">
+            <li><strong>Tool whitelist:</strong> <code>web_search</code> / <code>web_fetch</code>
+              and every Composio action (Gmail, Calendar, Drive, Slack, …) are
+              stripped from the agent's tool list — it cannot reference what
+              it doesn't have.</li>
+            <li><strong>Path guard:</strong> any file-touching tool resolves user-supplied
+              paths against this workspace folder and rejects anything that
+              tries to escape it.</li>
+            <li><strong>Network kill-switch:</strong> outbound HTTP from the agent thread
+              is monkey-patched to raise <code>NetworkBlocked</code> for the
+              duration of the run — belt-and-braces if a tool slips through
+              the whitelist. Loopback (the app talking to its own API) stays
+              allowed.</li>
+          </ul>
+          Allowed surface: this workspace's SQLite database, imported CSV
+          tables, files under <code>employees/&lt;EMP-CODE&gt;/</code>, and any
+          local recipes you've defined.
+          <br><br>
+          Turn this <strong>OFF</strong> only if you want the agent to use
+          <code>web_search</code> / <code>web_fetch</code> or trigger Composio
+          actions. The model provider will then receive HR context in its
+          prompts.
         </div>
       </div>
     </div>

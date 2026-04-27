@@ -1014,6 +1014,11 @@ def run(host: str = DEFAULT_HOST, port: int = DEFAULT_PORT,
     print(f"  root    = {ROOT}")
     print(f"  db      = {db_path(ROOT)}")
     print(f"  modules = {module_count} registered")
+    try:
+        from . import sandbox
+        print(f"  {sandbox.status_summary(CONN)}")
+    except Exception:  # pragma: no cover - banner must never block startup
+        pass
     print("Ctrl+C to stop.")
 
     if open_browser:
