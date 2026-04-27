@@ -115,7 +115,31 @@ def test_step2_skips_when_requested(conn):
     assert rows == []
 
 
-def test_step2_writes_provider_and_key(conn):
+def test_step2_writes_provider_key_and_model(conn):
+    _ensure_settings_table(conn)
+    h = _FakeHandler(conn)
+    wizard.handle_wizard_step(h, {
+        "step": 2,
+        "data": {
+            "ai_provider": "openrouter",
+            "ai_api_key": "sk-or-test",
+            "ai_model": "meta-llama/llama-3.3-70b-instruct:free",
+        },
+    })
+    code, payload = h.json_responses[0]
+    assert payload["ok"] is True
+    assert payload["next_step"] == 3
+    rows = {r["key"]: r["value"] for r in conn.execute(
+        "SELECT key, value FROM settings"
+    ).fetchall()}
+    assert rows.get("AI_PROVIDER") == "openrouter"
+    assert rows.get("AI_API_KEY") == "sk-or-test"
+    assert rows.get("AI_MODEL") == "meta-llama/llama-3.3-70b-instruct:free"
+
+
+def test_step2_rejects_missing_model(conn):
+    """Onboarding without picking a model used to silently use the OpenRouter
+    free default — broken for Upfyn users. Now we require model on Next."""
     _ensure_settings_table(conn)
     h = _FakeHandler(conn)
     wizard.handle_wizard_step(h, {
@@ -123,12 +147,24 @@ def test_step2_writes_provider_and_key(conn):
         "data": {"ai_provider": "openrouter", "ai_api_key": "sk-or-test"},
     })
     code, payload = h.json_responses[0]
-    assert payload["ok"] is True
-    rows = {r["key"]: r["value"] for r in conn.execute(
-        "SELECT key, value FROM settings"
-    ).fetchall()}
-    assert rows.get("AI_PROVIDER") == "openrouter"
-    assert rows.get("AI_API_KEY") == "sk-or-test"
+    assert code == 400
+    assert payload["ok"] is False
+    assert "model" in payload["error"].lower()
+
+
+def test_step2_rejects_missing_key(conn):
+    _ensure_settings_table(conn)
+    h = _FakeHandler(conn)
+    wizard.handle_wizard_step(h, {
+        "step": 2,
+        "data": {
+            "ai_provider": "openrouter",
+            "ai_model": "meta-llama/llama-3.3-70b-instruct:free",
+        },
+    })
+    code, payload = h.json_responses[0]
+    assert code == 400
+    assert "API key" in payload["error"]
 
 
 def test_step3_skip_leaves_modules_default(conn):

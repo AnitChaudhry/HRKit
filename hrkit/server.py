@@ -455,7 +455,7 @@ class Handler(BaseHTTPRequestHandler):
                 chat_mod.handle_get_conversation(self, _unq(m.group(1)))
                 return
             if path == "/chat":
-                self._html(200, chat_mod.render_chat_page())
+                self._html(200, chat_mod.render_chat_page(self.conn))
                 return
             if path == "/setup":
                 self._html(200, wizard.render_wizard_page(self.conn))

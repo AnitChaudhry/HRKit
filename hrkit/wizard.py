@@ -195,15 +195,29 @@ def render_wizard_page(conn: sqlite3.Connection) -> str:
 
   <form class="step" data-step="2">
     <label>AI provider</label>
-    <select name="ai_provider">
-      <option value="openrouter">OpenRouter</option>
+    <select name="ai_provider" id="wiz-ai-provider">
+      <option value="openrouter">OpenRouter (recommended — has free models)</option>
       <option value="upfyn">Upfyn</option>
     </select>
     <label>API key</label>
-    <input name="ai_api_key" type="password" placeholder="sk-or-...">
-    <div class="actions">
-      <button type="button" class="skip" data-skip="2">Skip</button>
-      <button type="submit" class="primary">Next</button>
+    <input name="ai_api_key" id="wiz-ai-key" type="password" placeholder="sk-or-...">
+    <div class="sub" style="margin-top:6px">
+      <span id="wiz-ai-key-hint">Get an OpenRouter key at <a href="https://openrouter.ai/keys" target="_blank" rel="noreferrer">openrouter.ai/keys</a> — free models work without billing.</span>
+    </div>
+    <div class="actions" style="margin-top:14px">
+      <button type="button" id="wiz-ai-connect" class="primary">Connect &amp; load models</button>
+    </div>
+    <div id="wiz-ai-status" class="sub" style="margin-top:10px;min-height:18px"></div>
+
+    <div id="wiz-ai-model-wrap" style="display:none;margin-top:10px">
+      <label>Model</label>
+      <select name="ai_model" id="wiz-ai-model"></select>
+      <div class="sub" style="margin-top:6px">★ marks free models. The default is a free model so you can start without billing.</div>
+    </div>
+
+    <div class="actions" style="margin-top:14px">
+      <button type="button" class="skip" data-skip="2">Skip (configure later)</button>
+      <button type="submit" id="wiz-ai-next" class="primary" disabled>Next</button>
     </div>
     <div class="err"></div>
   </form>
@@ -284,6 +298,103 @@ function showStep(n) {{
     else if (i === n) d.classList.add('active');
   }}
   current = n;
+}}
+
+// --- AI step (step 2) — Connect, load models, enable Next ----------------
+const aiProviderEl = document.getElementById('wiz-ai-provider');
+const aiKeyEl = document.getElementById('wiz-ai-key');
+const aiKeyHintEl = document.getElementById('wiz-ai-key-hint');
+const aiConnectBtn = document.getElementById('wiz-ai-connect');
+const aiStatusEl = document.getElementById('wiz-ai-status');
+const aiModelWrap = document.getElementById('wiz-ai-model-wrap');
+const aiModelSel = document.getElementById('wiz-ai-model');
+const aiNextBtn = document.getElementById('wiz-ai-next');
+
+const PROVIDER_HINTS = {{
+  openrouter: 'Get an OpenRouter key at <a href="https://openrouter.ai/keys" target="_blank" rel="noreferrer">openrouter.ai/keys</a> — free models work without billing.',
+  upfyn: 'Get an Upfyn API key at <a href="https://ai.upfyn.com/" target="_blank" rel="noreferrer">ai.upfyn.com</a>.',
+}};
+
+function setAiStatus(msg, kind) {{
+  aiStatusEl.textContent = msg || '';
+  aiStatusEl.style.color = kind === 'err' ? 'var(--err, #f88)' : (kind === 'ok' ? 'var(--ok, #6c6)' : 'var(--mute)');
+}}
+
+if (aiProviderEl) {{
+  aiProviderEl.addEventListener('change', () => {{
+    const p = aiProviderEl.value;
+    if (aiKeyHintEl) aiKeyHintEl.innerHTML = PROVIDER_HINTS[p] || '';
+    aiKeyEl.placeholder = p === 'upfyn' ? 'upfyn-...' : 'sk-or-...';
+    // Reset connect state — provider change invalidates the previous test.
+    aiModelWrap.style.display = 'none';
+    aiModelSel.innerHTML = '';
+    aiNextBtn.disabled = true;
+    setAiStatus('', '');
+  }});
+}}
+
+if (aiConnectBtn) {{
+  aiConnectBtn.addEventListener('click', async () => {{
+    const provider = aiProviderEl.value;
+    const key = (aiKeyEl.value || '').trim();
+    if (!key) {{
+      setAiStatus('Paste your API key first.', 'err');
+      aiKeyEl.focus();
+      return;
+    }}
+    aiConnectBtn.disabled = true;
+    setAiStatus('Connecting & verifying key…', '');
+    try {{
+      const r = await fetch('/api/wizard', {{
+        method: 'POST',
+        headers: {{ 'Content-Type': 'application/json' }},
+        body: JSON.stringify({{
+          step: 2,
+          data: {{ ai_provider: provider, ai_api_key: key, verify: true }},
+        }}),
+      }});
+      const body = await r.json();
+      if (!r.ok || !body.ok) {{
+        setAiStatus(body.error || 'Connection failed.', 'err');
+        return;
+      }}
+      // Populate model dropdown.
+      const models = body.models || [];
+      if (!models.length) {{
+        setAiStatus('Connected, but provider returned no models. Try again or pick a different provider.', 'err');
+        return;
+      }}
+      // Sort: free first, then paid; alpha within each group.
+      models.sort((a, b) => (a.free === b.free) ? a.id.localeCompare(b.id) : (a.free ? -1 : 1));
+      aiModelSel.innerHTML = '';
+      const frees = models.filter(m => m.free);
+      const paids = models.filter(m => !m.free);
+      function addGroup(label, list) {{
+        if (!list.length) return;
+        const g = document.createElement('optgroup');
+        g.label = label;
+        for (const m of list) {{
+          const opt = document.createElement('option');
+          opt.value = m.id;
+          opt.textContent = (m.free ? '★ ' : '') + m.id;
+          g.appendChild(opt);
+        }}
+        aiModelSel.appendChild(g);
+      }}
+      addGroup('Free models', frees);
+      addGroup('Paid models', paids);
+      // Default to first free model if any, else first paid.
+      const def = frees[0] || paids[0];
+      if (def) aiModelSel.value = def.id;
+      aiModelWrap.style.display = '';
+      aiNextBtn.disabled = false;
+      setAiStatus('✓ Connected. ' + models.length + ' models available — pick one and click Next.', 'ok');
+    }} catch (err) {{
+      setAiStatus('Network error: ' + err, 'err');
+    }} finally {{
+      aiConnectBtn.disabled = false;
+    }}
+  }});
 }}
 
 // Module preset buttons.
@@ -386,10 +497,46 @@ def _step2(conn: sqlite3.Connection, data: dict[str, Any]) -> dict[str, Any]:
     if provider not in VALID_PROVIDERS:
         raise ValueError(f"invalid AI provider: {provider}")
     key = (data.get("ai_api_key") or "").strip()
-    payload: dict[str, str] = {"ai_provider": provider}
-    if key:
-        payload["ai_api_key"] = key
-    branding.set_settings(conn, payload)
+    model = (data.get("ai_model") or "").strip()
+
+    # "Connect & load models" pre-flight: save provider + key, probe the
+    # provider's /models endpoint, return the catalog so the wizard can
+    # populate its model dropdown. Does NOT advance the wizard.
+    if data.get("verify"):
+        if not key:
+            raise ValueError("API key required to connect")
+        branding.set_settings(conn, {"ai_provider": provider, "ai_api_key": key})
+        # Health-check first so we surface auth failures clearly. list_models()
+        # uses the same key so a 401 here means the key is wrong.
+        try:
+            from . import ai as _ai
+            health = _ai.health_check(conn)
+            if not health.get("ok"):
+                err = health.get("error") or "provider rejected the request"
+                raise ValueError(f"connection failed: {err}")
+            catalog = _ai.list_models(conn)
+        except ValueError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - surface message to UI
+            raise ValueError(f"connection failed: {exc}")
+        if not catalog.get("ok"):
+            raise ValueError(catalog.get("error") or "could not load models")
+        return {
+            "models": catalog.get("models", []),
+            "verified": True,
+        }
+
+    # Normal Next: persist provider + key + model (model required so the
+    # default OpenRouter free model isn't silently used for an Upfyn account).
+    if not key:
+        raise ValueError("API key required (or click Skip to configure later)")
+    if not model:
+        raise ValueError("pick a model from the list before continuing")
+    branding.set_settings(conn, {
+        "ai_provider": provider,
+        "ai_api_key": key,
+        "ai_model": model,
+    })
     return {"next_step": 3}
 
 

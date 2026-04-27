@@ -840,15 +840,38 @@ inputEl.focus();
 """
 
 
-def render_chat_page() -> str:
+def render_chat_page(conn=None) -> str:
     """Return the full HTML for the AI assistant page.
 
     Reuses the shared module shell so the chat picks up the dark theme,
     top-nav, and white-label app name automatically. ``nav_active=''`` keeps
     every module nav item un-highlighted (chat is not a module).
+
+    When no AI API key is configured, prepends a banner that links to
+    ``/settings`` so the user fixes onboarding instead of typing a message
+    and receiving a cryptic 502.
     """
+    body = _CHAT_BODY
+    if conn is not None:
+        try:
+            if not branding.ai_api_key(conn):
+                banner = (
+                    '<div style="max-width:1180px;margin:0 auto 14px auto;'
+                    'padding:14px 18px;border:1px solid var(--border);'
+                    'border-radius:8px;background:rgba(255,200,80,0.08);'
+                    'color:var(--text);font-size:13.5px;line-height:1.5">'
+                    '<strong>AI is not configured yet.</strong> '
+                    'Open <a href="/settings" style="color:var(--accent);'
+                    'text-decoration:underline">Settings</a> to add an '
+                    'OpenRouter or Upfyn API key (free models work without '
+                    'billing). The assistant will be unavailable until then.'
+                    '</div>'
+                )
+                body = banner + _CHAT_BODY
+        except Exception:  # noqa: BLE001 — never break chat over banner
+            pass
     return render_module_page(
         title="AI Assistant",
         nav_active="",
-        body_html=_CHAT_BODY,
+        body_html=body,
     )
