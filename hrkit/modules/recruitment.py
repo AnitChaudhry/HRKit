@@ -499,128 +499,144 @@ def list_view(handler) -> None:
     handler._html(200, render_module_page(title=LABEL, nav_active=NAME, body_html=body))
 
 
-def kanban_view(handler) -> None:
-    """Drag-and-drop kanban board with one column per status.
+_KANBAN_COLUMNS: list[tuple[str, str]] = [
+    ("applied",   "Applied"),
+    ("screening", "Screening"),
+    ("interview", "Interview"),
+    ("offer",     "Offer"),
+    ("hired",     "Hired"),
+    ("rejected",  "Rejected"),
+]
 
-    Replaces the legacy folder-native /p/<id> hiring board. Uses the existing
-    /api/m/recruitment/<id>/move endpoint for status transitions.
+
+def _render_recruitment_card(item: dict[str, Any]) -> str:
+    """Card body builder used by the kanban archetype — name + email + chips."""
+    name = _esc(item.get("name") or "(no name)")
+    email = _esc(item.get("email") or "")
+    score_v = item.get("score")
+    score_chip = ""
+    if score_v not in (None, "", 0, 0.0):
+        score_chip = f'<span class="kr-score">{float(score_v):.1f}</span>'
+    recm = (item.get("recommendation") or "").strip()
+    recm_chip = (
+        f'<span class="kr-rec kr-rec-{_esc(recm.lower())}">{_esc(recm)}</span>'
+        if recm else ""
+    )
+    sub_html = f'<div class="kanban-card-sub">{email}</div>' if email else ""
+    chips = f'<div class="kanban-card-tags">{score_chip}{recm_chip}</div>' if (
+        score_chip or recm_chip) else ""
+    return (
+        f'<div class="kanban-card-title">{name}</div>'
+        f'{sub_html}'
+        f'{chips}'
+    )
+
+
+def kanban_view(handler) -> None:
+    """Drag-and-drop kanban built on :func:`templates.render_kanban_board`.
+
+    Calls the existing /api/m/recruitment/<id>/move endpoint on drop.
+    Card layout (name + email + score chip + recommendation chip) is rendered
+    via the local ``_render_recruitment_card`` helper; the archetype handles
+    column buckets, counts, and the empty-state placeholder.
     """
-    from hrkit.templates import render_module_page
+    from hrkit.templates import render_module_page, render_kanban_board
 
     conn = handler.server.conn  # type: ignore[attr-defined]
-    rows = list_rows(conn)
-    by_status: dict[str, list[dict[str, Any]]] = {s: [] for s in ALLOWED_STATUS}
-    for r in rows:
-        s = r.get("status") or "applied"
-        by_status.setdefault(s, []).append(r)
-    body = _render_kanban_html(by_status)
-    handler._html(200, render_module_page(title=f"{LABEL} board", nav_active=NAME, body_html=body))
+    items = list_rows(conn)
 
+    board_html = render_kanban_board(
+        columns=_KANBAN_COLUMNS,
+        items=items,
+        get_column=lambda r: r.get("status") or "applied",
+        render_card=_render_recruitment_card,
+        get_id=lambda r: int(r["id"]),
+    )
 
-def _render_kanban_html(by_status: dict[str, list[dict[str, Any]]]) -> str:
-    """Render a 6-column drag-and-drop kanban (HTML5 native, no libs)."""
-    column_titles = {
-        "applied":   ("Applied",   "#6366f1"),
-        "screening": ("Screening", "#22d3ee"),
-        "interview": ("Interview", "#f59e0b"),
-        "offer":     ("Offer",     "#8b5cf6"),
-        "hired":     ("Hired",     "#10b981"),
-        "rejected":  ("Rejected",  "#f43f5e"),
-    }
-
-    cols_html: list[str] = []
-    for status_key in ALLOWED_STATUS:
-        title, accent = column_titles.get(status_key, (status_key.title(), "#9aa0a6"))
-        cards = by_status.get(status_key, [])
-        card_html: list[str] = []
-        for r in cards:
-            name = _esc(r.get("name") or "(no name)")
-            email = _esc(r.get("email") or "")
-            score_v = r.get("score")
-            score_chip = ""
-            if score_v not in (None, "", 0, 0.0):
-                score_chip = f'<span class="kb-score">{float(score_v):.1f}</span>'
-            recm = r.get("recommendation") or ""
-            recm_chip = f'<span class="kb-rec kb-rec-{_esc(recm.lower())}">{_esc(recm)}</span>' if recm else ""
-            card_html.append(
-                f'<div class="kb-card" draggable="true" data-id="{int(r["id"])}" '
-                f'ondragstart="kbDragStart(event)" onclick="location.href=\'/m/recruitment/{int(r["id"])}\'">'
-                f'<div class="kb-name">{name}</div>'
-                f'<div class="kb-meta">{email}</div>'
-                f'<div class="kb-chips">{score_chip}{recm_chip}</div>'
-                f'</div>'
-            )
-        cols_html.append(f"""
-<div class="kb-col" data-status="{_esc(status_key)}"
-     ondragover="event.preventDefault()" ondrop="kbDrop(event, '{_esc(status_key)}')">
-  <div class="kb-col-head" style="border-color:{accent}">
-    <span class="kb-col-title">{_esc(title)}</span>
-    <span class="kb-col-count">{len(cards)}</span>
-  </div>
-  <div class="kb-col-body">{''.join(card_html) or '<div class="kb-empty">drop candidates here</div>'}</div>
-</div>""")
-
-    return f"""
+    body = f"""
 <style>
-  .kb-toolbar{{display:flex;align-items:center;gap:12px;margin-bottom:14px}}
-  .kb-toolbar h1{{margin:0;font-size:22px;font-weight:600}}
-  .kb-toolbar a{{padding:6px 12px;border-radius:6px;color:var(--dim);
+  /* Recruitment-specific chip styling layered on top of the kanban
+     archetype. Card click routes to detail; drag-and-drop is wired up
+     via event delegation against the archetype's data-id / data-col
+     attributes. */
+  .kr-toolbar{{display:flex;align-items:center;gap:12px;margin-bottom:14px}}
+  .kr-toolbar h1{{margin:0;font-size:22px;font-weight:600;color:var(--text)}}
+  .kr-toolbar .kr-spacer{{flex:1}}
+  .kr-toolbar a{{padding:6px 12px;border-radius:6px;color:var(--dim);
     text-decoration:none;font-size:13px;border:1px solid var(--border)}}
-  .kb-toolbar a:hover{{color:var(--text);border-color:var(--accent)}}
-  .kb-board{{display:grid;grid-template-columns:repeat(6,minmax(200px,1fr));
-    gap:12px;align-items:start}}
-  .kb-col{{background:var(--panel);border:1px solid var(--border);
-    border-radius:10px;min-height:240px;display:flex;flex-direction:column}}
-  .kb-col.over{{outline:2px dashed var(--accent);outline-offset:-4px}}
-  .kb-col-head{{display:flex;justify-content:space-between;align-items:center;
-    padding:10px 12px;border-bottom:2px solid;font-size:12px;font-weight:600;
-    text-transform:uppercase;letter-spacing:0.5px}}
-  .kb-col-count{{background:rgba(255,255,255,0.06);padding:2px 8px;
-    border-radius:10px;font-weight:500}}
-  .kb-col-body{{padding:8px;display:flex;flex-direction:column;gap:8px;flex:1}}
-  .kb-card{{background:var(--bg);border:1px solid var(--border);border-radius:8px;
-    padding:10px 12px;cursor:grab;transition:transform .12s,border-color .12s}}
-  .kb-card:hover{{border-color:var(--accent);transform:translateY(-1px)}}
-  .kb-card.dragging{{opacity:0.4;cursor:grabbing}}
-  .kb-name{{font-weight:600;font-size:13.5px;margin-bottom:3px}}
-  .kb-meta{{font-size:11.5px;color:var(--dim);word-break:break-all}}
-  .kb-chips{{display:flex;gap:4px;margin-top:6px;flex-wrap:wrap}}
-  .kb-score{{background:var(--accent);color:#fff;font-size:11px;
+  .kr-toolbar a:hover{{color:var(--text);border-color:var(--accent)}}
+  .kanban-card{{cursor:grab}}
+  .kanban-card.dragging{{opacity:0.4;cursor:grabbing}}
+  .kanban-col.over{{outline:2px dashed var(--accent);outline-offset:-4px}}
+  .kr-score{{background:var(--accent);color:#fff;font-size:11px;
     padding:1px 7px;border-radius:10px;font-weight:600}}
-  .kb-rec{{font-size:10px;padding:1px 7px;border-radius:10px;
-    text-transform:uppercase;letter-spacing:0.4px;background:rgba(255,255,255,0.06);color:var(--dim)}}
-  .kb-rec-shortlist{{background:rgba(16,185,129,0.18);color:#10b981}}
-  .kb-rec-borderline{{background:rgba(245,158,11,0.18);color:#f59e0b}}
-  .kb-rec-reject{{background:rgba(244,63,94,0.18);color:#f43f5e}}
-  .kb-empty{{padding:14px;text-align:center;color:var(--dim);font-size:11.5px;font-style:italic}}
+  .kr-rec{{font-size:10px;padding:1px 7px;border-radius:10px;
+    text-transform:uppercase;letter-spacing:0.4px;
+    background:var(--row-hover);color:var(--dim)}}
+  .kr-rec-shortlist{{background:rgba(16,185,129,0.18);color:#10b981}}
+  .kr-rec-borderline{{background:rgba(245,158,11,0.18);color:#f59e0b}}
+  .kr-rec-reject{{background:rgba(244,63,94,0.18);color:#f43f5e}}
 </style>
-<div class="kb-toolbar">
+<div class="kr-toolbar">
   <h1>Recruitment board</h1>
+  <span class="kr-spacer"></span>
   <a href="/m/recruitment">List view</a>
 </div>
-<div class="kb-board">{''.join(cols_html)}</div>
+{board_html}
 <script>
-function kbDragStart(ev) {{
-  ev.dataTransfer.setData('text/plain', ev.target.dataset.id);
-  ev.target.classList.add('dragging');
-  ev.dataTransfer.effectAllowed = 'move';
-}}
-async function kbDrop(ev, newStatus) {{
-  ev.preventDefault();
-  const id = ev.dataTransfer.getData('text/plain');
-  if (!id) return;
-  const r = await fetch('/api/m/recruitment/' + id + '/move', {{
-    method: 'POST', headers: {{'Content-Type': 'application/json'}},
-    body: JSON.stringify({{status: newStatus}}),
+(function() {{
+  const board = document.querySelector('.kanban');
+  if (!board) return;
+
+  // Card click -> navigate to detail; drag handlers attached to each card.
+  board.querySelectorAll('.kanban-card').forEach(card => {{
+    const id = card.dataset.id;
+    if (!id) return;
+    card.setAttribute('draggable', 'true');
+    card.addEventListener('click', (ev) => {{
+      // Suppress the click that fires immediately after a drop.
+      if (card.classList.contains('just-dropped')) return;
+      location.href = '/m/recruitment/' + id;
+    }});
+    card.addEventListener('dragstart', (ev) => {{
+      ev.dataTransfer.setData('text/plain', id);
+      ev.dataTransfer.effectAllowed = 'move';
+      card.classList.add('dragging');
+    }});
+    card.addEventListener('dragend', () => card.classList.remove('dragging'));
   }});
-  if (r.ok) location.reload();
-  else alert('Move failed: ' + (await r.text()));
-}}
-document.querySelectorAll('.kb-card').forEach(c => {{
-  c.addEventListener('dragend', () => c.classList.remove('dragging'));
-}});
+
+  // Column drop targets.
+  board.querySelectorAll('.kanban-col').forEach(col => {{
+    const status = col.dataset.col;
+    if (!status || status === '__other__') return;
+    col.addEventListener('dragover', (ev) => {{
+      ev.preventDefault();
+      col.classList.add('over');
+    }});
+    col.addEventListener('dragleave', () => col.classList.remove('over'));
+    col.addEventListener('drop', async (ev) => {{
+      ev.preventDefault();
+      col.classList.remove('over');
+      const id = ev.dataTransfer.getData('text/plain');
+      if (!id) return;
+      try {{
+        const r = await fetch('/api/m/recruitment/' + id + '/move', {{
+          method: 'POST', headers: {{'Content-Type': 'application/json'}},
+          body: JSON.stringify({{status}}),
+        }});
+        if (r.ok) location.reload();
+        else alert('Move failed: ' + (await r.text()));
+      }} catch (e) {{
+        alert('Move failed: ' + e.message);
+      }}
+    }});
+  }});
+}})();
 </script>
 """
+    handler._html(200, render_module_page(
+        title=f"{LABEL} board", nav_active=NAME, body_html=body))
 
 
 def _fmt_dt(value: Any) -> str:
