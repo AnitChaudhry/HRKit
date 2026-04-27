@@ -309,7 +309,7 @@ def _safe_count(conn: Any, sql: str) -> int:
     return int(row[0] if not hasattr(row, "keys") else row[list(row.keys())[0]])
 
 
-def _collect_home_stats(conn: Any, enabled: list[str]) -> dict[str, int]:
+def _collect_home_stats(conn: Any, enabled: list[str]) -> dict[str, Any]:
     """Aggregate per-module counters used by the home page.
 
     Only queries the tables for enabled modules so a workspace with, say,
@@ -336,6 +336,27 @@ def _collect_home_stats(conn: Any, enabled: list[str]) -> dict[str, int]:
             "SELECT COUNT(*) FROM recruitment_candidate "
             "WHERE status NOT IN ('hired','rejected')",
         )
+    # Extra aggregates for the home dashboard's workforce breakdown.
+    if "employee" in enabled_set:
+        stats["on_leave_count"] = _safe_count(
+            conn, "SELECT COUNT(*) FROM employee WHERE status='on_leave'")
+        stats["exited_count"] = _safe_count(
+            conn, "SELECT COUNT(*) FROM employee WHERE status='exited'")
+        # Hires per month for the last 6 months (oldest -> newest).
+        try:
+            cur = conn.execute(
+                "SELECT strftime('%Y-%m', hire_date) AS month, COUNT(*) AS n "
+                "FROM employee "
+                "WHERE hire_date <> '' "
+                "  AND hire_date >= date('now','start of month','-5 months') "
+                "GROUP BY month ORDER BY month"
+            )
+            stats["hires_by_month"] = [
+                {"label": r["month"], "value": int(r["n"])}
+                for r in cur.fetchall()
+            ]
+        except Exception:
+            stats["hires_by_month"] = []
     return stats
 
 

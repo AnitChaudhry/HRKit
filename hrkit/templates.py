@@ -1232,49 +1232,83 @@ HOME_CSS = r"""
 """
 
 
-def render_home_page(*, root_name: str, stats: dict[str, int],
+def render_home_page(*, root_name: str, stats: dict[str, Any],
                      enabled: list[str]) -> str:
     """Render the workspace landing page using the module-page shell.
 
-    ``stats`` is a dict of pre-aggregated counts keyed by:
-        employee_count, department_count, role_count,
-        pending_leave_count, open_position_count, candidate_count.
-    Missing keys are treated as zero. Stat cards for disabled modules are
-    skipped automatically.
+    ``stats`` is a dict of pre-aggregated values keyed by:
+        employee_count, on_leave_count, exited_count,
+        department_count, role_count,
+        pending_leave_count, open_position_count, candidate_count,
+        hires_by_month (list of {label, value} dicts for the last 6 months).
+    Missing keys are treated as zero / empty. Stat tiles for disabled
+    modules are skipped automatically.
     """
     enabled_set = set(enabled)
     app_name_str = branding.app_name()
 
-    def stat(slug: str, value: int, label: str, href: str) -> str:
-        if slug not in enabled_set:
-            return ""
-        return (
-            f'<a class="home-stat" href="{href}">'
-            f'<span class="v">{value}</span>'
-            f'<span class="k">{_e(label)}</span></a>'
-        )
-
-    stat_cards: list[str] = []
+    # Build the KPI tiles via render_stat_grid. Each tile is one
+    # {label, value, href} dict — the archetype handles markup + theming.
+    stat_specs: list[dict[str, Any]] = []
     if "employee" in enabled_set:
-        stat_cards.append(stat("employee",
-                               int(stats.get("employee_count", 0)),
-                               "Employees", "/m/employee"))
+        stat_specs.append({
+            "label": "Employees",
+            "value": int(stats.get("employee_count", 0)),
+            "href": "/m/employee",
+        })
     if "department" in enabled_set:
-        stat_cards.append(stat("department",
-                               int(stats.get("department_count", 0)),
-                               "Departments", "/m/department"))
+        stat_specs.append({
+            "label": "Departments",
+            "value": int(stats.get("department_count", 0)),
+            "href": "/m/department",
+        })
     if "role" in enabled_set:
-        stat_cards.append(stat("role",
-                               int(stats.get("role_count", 0)),
-                               "Roles", "/m/role"))
+        stat_specs.append({
+            "label": "Roles",
+            "value": int(stats.get("role_count", 0)),
+            "href": "/m/role",
+        })
     if "leave" in enabled_set:
-        stat_cards.append(stat("leave",
-                               int(stats.get("pending_leave_count", 0)),
-                               "Pending leave", "/m/leave"))
+        stat_specs.append({
+            "label": "Pending leave",
+            "value": int(stats.get("pending_leave_count", 0)),
+            "href": "/m/leave",
+        })
     if "recruitment" in enabled_set:
-        stat_cards.append(stat("recruitment",
-                               int(stats.get("candidate_count", 0)),
-                               "Candidates", "/m/recruitment/board"))
+        stat_specs.append({
+            "label": "Candidates",
+            "value": int(stats.get("candidate_count", 0)),
+            "href": "/m/recruitment/board",
+        })
+    stat_grid_html = render_stat_grid(stat_specs)
+
+    # Workforce status donut + hires-by-month bar — only if employee module
+    # is enabled, since both come off the employee table.
+    workforce_html = ""
+    if "employee" in enabled_set:
+        donut_slices = [
+            {"label": "Active",
+             "value": int(stats.get("employee_count", 0)),
+             "color": "var(--accent)"},
+            {"label": "On leave",
+             "value": int(stats.get("on_leave_count", 0)),
+             "color": "#f59e0b"},
+            {"label": "Exited",
+             "value": int(stats.get("exited_count", 0)),
+             "color": "#6b7280"},
+        ]
+        donut = render_donut_svg(donut_slices, size=180, thickness=24,
+                                  title="Workforce status",
+                                  center_label="employees")
+        bars = stats.get("hires_by_month") or []
+        bar = render_bar_svg(bars, height=160,
+                             title="Hires per month — last 6 months")
+        workforce_html = (
+            '<div class="home-charts">'
+            f'<div class="home-chart-cell">{donut}</div>'
+            f'<div class="home-chart-cell">{bar}</div>'
+            '</div>'
+        )
 
     quick_actions: list[str] = []
     if "employee" in enabled_set:
@@ -1311,13 +1345,19 @@ def render_home_page(*, root_name: str, stats: dict[str, int],
 
     body_html = f"""
 <style>{HOME_CSS}</style>
+<style>
+  /* Two-column charts row for the home page; collapses on narrow screens. */
+  .home-charts{{display:grid;grid-template-columns:minmax(240px,1fr) 2fr;
+    gap:14px;margin:14px 0 6px}}
+  .home-chart-cell{{min-width:0}}
+  @media (max-width: 720px){{.home-charts{{grid-template-columns:1fr}}}}
+</style>
 <section class="home-hero">
   <h1>{_e(app_name_str)}</h1>
   <p>Workspace: <strong>{_e(root_name)}</strong> &middot; running locally on this machine.</p>
 </section>
-<div class="home-stats">
-  {''.join(stat_cards) or '<div class="home-empty" style="grid-column:1/-1">No stats yet — add your first records to populate this page.</div>'}
-</div>
+{stat_grid_html or '<div class="home-empty">No stats yet — add your first records to populate this page.</div>'}
+{workforce_html}
 <div class="home-section-title">Quick actions</div>
 <div class="home-quick">
   {''.join(quick_actions) or '<span style="color:var(--dim);font-size:13px">No actions available.</span>'}
