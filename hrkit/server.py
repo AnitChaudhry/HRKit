@@ -11,11 +11,12 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from socketserver import ThreadingMixIn
 from typing import Any, Optional
-from urllib.parse import unquote, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 from . import branding
 from . import chat as chat_mod
 from . import db as dbmod
+from . import feature_flags
 from . import integrations_ui
 from . import recipes_ui
 from . import scanner as scanner_mod
@@ -37,8 +38,10 @@ from .frontmatter import parse as fm_parse
 from .models import Activity, Folder
 
 # Module registry — populated at server startup from hrkit.modules.__all__
-# Each entry: {"GET": [(regex, handler_fn), ...], "POST": [...], "DELETE": [...]}
-MODULE_ROUTES: dict[str, list[tuple[re.Pattern, Any]]] = {
+# Each entry: {"GET": [(regex, handler_fn, module_slug), ...], "POST": [...], "DELETE": [...]}
+# The module_slug is matched against feature_flags.enabled_modules() at dispatch
+# time so disabled modules fall through to 404 without a separate route table.
+MODULE_ROUTES: dict[str, list[tuple[re.Pattern, Any, str]]] = {
     "GET": [], "POST": [], "DELETE": [],
 }
 
@@ -136,42 +139,6 @@ def _as_int(v: Any) -> int:
     return int(str(v))
 
 
-def _build_tree() -> dict:
-    if CONN is None:
-        return {"id": None, "name": "Workspace", "type": "workspace", "children": []}
-    rows = CONN.execute(
-        "SELECT id, parent_id, type, name FROM folders ORDER BY type, name"
-    ).fetchall()
-    nodes: dict[int, dict] = {}
-    roots: list[dict] = []
-    for r in rows:
-        nodes[int(r["id"])] = {
-            "id": int(r["id"]),
-            "name": r["name"],
-            "type": r["type"],
-            "children": [],
-        }
-    for r in rows:
-        node = nodes[int(r["id"])]
-        pid = r["parent_id"]
-        if pid is None:
-            roots.append(node)
-        else:
-            parent = nodes.get(int(pid))
-            if parent is not None:
-                parent["children"].append(node)
-            else:
-                roots.append(node)
-    if len(roots) == 1 and roots[0]["type"] == "workspace":
-        return roots[0]
-    return {
-        "id": None,
-        "name": ROOT.name if ROOT else "Workspace",
-        "type": "workspace",
-        "children": roots,
-    }
-
-
 def _folder_path(f: Folder) -> Path:
     return Path(f.path)
 
@@ -266,6 +233,47 @@ def _open_in_explorer(path: Path) -> None:
         subprocess.Popen(["xdg-open", str(path)])
 
 
+def _list_workspace_tree(rel: str = "") -> dict[str, Any]:
+    """Return the contents of a workspace subdirectory as a JSON-friendly dict.
+
+    ``rel`` is a forward-slash path relative to ROOT. Empty string means the
+    workspace root itself. Raises ``FileNotFoundError`` if the resolved path
+    is outside ROOT or does not exist (path traversal protection).
+    """
+    if ROOT is None:
+        raise FileNotFoundError("workspace root is not set")
+    rel = (rel or "").strip().lstrip("/").lstrip("\\")
+    target = (ROOT / rel).resolve()
+    root_resolved = ROOT.resolve()
+    try:
+        target.relative_to(root_resolved)
+    except ValueError as exc:
+        raise FileNotFoundError(
+            f"path '{rel}' resolves outside the workspace"
+        ) from exc
+    if not target.exists() or not target.is_dir():
+        raise FileNotFoundError(f"directory not found: {rel or '/'}")
+
+    entries: list[dict[str, Any]] = []
+    for child in sorted(target.iterdir(), key=lambda p: (p.is_file(), p.name.lower())):
+        try:
+            stat = child.stat()
+        except OSError:
+            continue
+        entries.append({
+            "name": child.name,
+            "kind": "dir" if child.is_dir() else "file",
+            "size": int(stat.st_size) if child.is_file() else 0,
+            "modified": int(stat.st_mtime),
+            "rel_path": str(child.relative_to(root_resolved)).replace("\\", "/"),
+        })
+    return {
+        "root": str(root_resolved),
+        "rel": str(target.relative_to(root_resolved)).replace("\\", "/") if target != root_resolved else "",
+        "entries": entries,
+    }
+
+
 def _open_file_os(path: Path) -> None:
     if sys.platform.startswith("win"):
         os.startfile(str(path))  # type: ignore[attr-defined]
@@ -288,6 +296,47 @@ def _scaffold_task_md(name: str, status: str, priority: str, tags: list[str]) ->
     }
     body = f"# {name}\n\n"
     return fm_dump(fm, body)
+
+
+def _safe_count(conn: Any, sql: str) -> int:
+    """Run a COUNT(*) query, returning 0 if the table doesn't exist yet."""
+    try:
+        row = conn.execute(sql).fetchone()
+    except Exception:
+        return 0
+    if row is None:
+        return 0
+    return int(row[0] if not hasattr(row, "keys") else row[list(row.keys())[0]])
+
+
+def _collect_home_stats(conn: Any, enabled: list[str]) -> dict[str, int]:
+    """Aggregate per-module counters used by the home page.
+
+    Only queries the tables for enabled modules so a workspace with, say,
+    recruitment disabled doesn't pay for the candidate count. All counters
+    fall back to 0 if the underlying table is missing.
+    """
+    enabled_set = set(enabled)
+    stats: dict[str, int] = {}
+    if "employee" in enabled_set:
+        stats["employee_count"] = _safe_count(
+            conn, "SELECT COUNT(*) FROM employee WHERE status='active'")
+    if "department" in enabled_set:
+        stats["department_count"] = _safe_count(
+            conn, "SELECT COUNT(*) FROM department")
+    if "role" in enabled_set:
+        stats["role_count"] = _safe_count(
+            conn, "SELECT COUNT(*) FROM role")
+    if "leave" in enabled_set:
+        stats["pending_leave_count"] = _safe_count(
+            conn, "SELECT COUNT(*) FROM leave_request WHERE status='pending'")
+    if "recruitment" in enabled_set:
+        stats["candidate_count"] = _safe_count(
+            conn,
+            "SELECT COUNT(*) FROM recruitment_candidate "
+            "WHERE status NOT IN ('hired','rejected')",
+        )
+    return stats
 
 
 def _generated_label() -> str:
@@ -375,11 +424,17 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/integrations/state":
                 integrations_ui.handle_state(self)
                 return
+            if path == "/api/integrations/search":
+                integrations_ui.handle_search(self)
+                return
             if path == "/recipes":
                 self._html(200, recipes_ui.render_recipes_page())
                 return
             if path == "/api/recipes":
                 recipes_ui.handle_list(self)
+                return
+            if path == "/api/recipes/catalog":
+                recipes_ui.handle_catalog(self)
                 return
             m = re.match(r"^/api/recipes/([A-Za-z0-9_\-]+)/?$", path)
             if m:
@@ -405,11 +460,15 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/setup":
                 self._html(200, wizard.render_wizard_page(self.conn))
                 return
-            if path == "/api/tree":
-                self._json(_build_tree())
-                return
             if path == "/api/stats":
                 self._json(dbmod.stats(CONN))
+                return
+            if path == "/api/workspace/tree":
+                rel = parse_qs(parsed.query).get("path", [""])[0]
+                try:
+                    self._json(_list_workspace_tree(rel))
+                except FileNotFoundError as exc:
+                    self._json({"ok": False, "error": str(exc)}, code=404)
                 return
 
             m = re.match(r"^/api/m/document/(\d+)/download/?$", path)
@@ -421,14 +480,26 @@ class Handler(BaseHTTPRequestHandler):
             # /d/<id> (department) and /p/<id> (position) -> kanban board.
             # /t/<id> (task) -> recruitment candidate detail (best-effort: by
             #                   matching position_folder_id metadata if known).
+            # When the recruitment module is disabled, fall back to / instead
+            # of leaving the user on a 404.
+            recruitment_on = feature_flags.is_enabled("recruitment", CONN)
             if re.match(r"^/d/\d+/?$", path) or re.match(r"^/p/\d+/?$", path):
                 self.send_response(302)
-                self.send_header("Location", "/m/recruitment/board")
+                self.send_header(
+                    "Location",
+                    "/m/recruitment/board" if recruitment_on else "/",
+                )
                 self.send_header("Content-Length", "0")
                 self.end_headers()
                 return
             m = re.match(r"^/t/(\d+)/?$", path)
             if m:
+                if not recruitment_on:
+                    self.send_response(302)
+                    self.send_header("Location", "/")
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+                    return
                 # Try to find the matching recruitment_candidate by legacy folder_id.
                 target = "/m/recruitment"
                 try:
@@ -478,6 +549,9 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/open-folder":
                 self._api_open_folder()
                 return
+            if path == "/api/workspace/open":
+                self._api_open_workspace()
+                return
             if path == "/api/open-file":
                 self._api_open_file()
                 return
@@ -486,6 +560,9 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if path == "/api/settings":
                 settings_ui.handle_save_settings(self, self._read_json())
+                return
+            if path == "/api/settings/modules":
+                settings_ui.handle_save_modules(self, self._read_json())
                 return
             if path == "/api/settings/test":
                 settings_ui.handle_test_connection(self, self._read_json())
@@ -552,77 +629,34 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"ok": False, "error": str(e)}, 500)
 
     def _dispatch_module(self, method: str, path: str) -> bool:
-        """Try to match path against module registry. Returns True if handled."""
-        for pattern, handler_fn in MODULE_ROUTES.get(method, []):
+        """Try to match path against module registry. Returns True if handled.
+
+        Routes whose owning module is disabled in feature_flags fall through
+        so the request reaches the 404 branch.
+        """
+        enabled = set(feature_flags.enabled_modules(CONN))
+        for pattern, handler_fn, slug in MODULE_ROUTES.get(method, []):
             m = pattern.match(path)
             if m:
+                if slug not in enabled:
+                    continue
                 handler_fn(self, *m.groups())
                 return True
         return False
 
     # ---- GET handlers -------------------------------------------------------
     def _serve_landing(self, templates) -> None:
-        depts = dbmod.all_by_type(CONN, "department")
-        st = dbmod.stats(CONN)
         root_name = ROOT.name if ROOT else "Workspace"
-        html = templates.render_landing(root_name, depts, st, _generated_label())
-        self._html(200, html)
-
-    def _serve_department(self, templates, dept_id: int) -> None:
-        dept = dbmod.folder_by_id(CONN, dept_id)
-        if not dept or dept.type != "department":
-            self._send(404, b"department not found", "text/plain; charset=utf-8")
-            return
-        positions = dbmod.descendants_by_type(CONN, dept_id, "position")
-        tasks = dbmod.descendants_by_type(CONN, dept_id, "task")
-        by_status: dict[str, int] = {}
-        for t in tasks:
-            by_status[t.status or ""] = by_status.get(t.status or "", 0) + 1
-        st = {
-            "total": len(positions) + len(tasks),
-            "by_type": {"position": len(positions), "task": len(tasks)},
-            "by_status": by_status,
-        }
-        tree = _build_tree()
-        html = templates.render_department(dept, positions, st, _generated_label(), tree)
-        self._html(200, html)
-
-    def _serve_position(self, templates, pos_id: int) -> None:
-        pos = dbmod.folder_by_id(CONN, pos_id)
-        if not pos or pos.type != "position":
-            self._send(404, b"position not found", "text/plain; charset=utf-8")
-            return
-        tasks = dbmod.descendants_by_type(CONN, pos_id, "task")
-        columns = _get_position_columns(pos)
-        statuses = _get_position_statuses(pos)
-        tree = _build_tree()
-        html = templates.render_position(pos, tasks, columns, statuses,
-                                         _generated_label(), tree)
-        self._html(200, html)
-
-    def _serve_task(self, templates, task_id: int) -> None:
-        task = dbmod.folder_by_id(CONN, task_id)
-        if not task or task.type != "task":
-            self._send(404, b"task not found", "text/plain; charset=utf-8")
-            return
-        if task.parent_id:
-            self.send_response(302)
-            self.send_header("Location", f"/p/{task.parent_id}?task={task_id}")
-            self.send_header("Content-Length", "0")
-            self.end_headers()
-            return
-        parent_pos = Folder(id=None, name="(none)", type="position")
-        attachments = _list_attachments(task)
-        activity = _activity_for_folder(task_id, 100)
-        tree = _build_tree()
-        html = templates.render_task(task, parent_pos, attachments, activity,
-                                     _generated_label(), tree)
+        enabled = feature_flags.enabled_modules(CONN)
+        stats = _collect_home_stats(CONN, enabled)
+        html = templates.render_home_page(
+            root_name=root_name, stats=stats, enabled=enabled,
+        )
         self._html(200, html)
 
     def _serve_activity(self, templates) -> None:
         act = dbmod.recent_activity(CONN, 100)
-        tree = _build_tree()
-        html = templates.render_activity(act, _generated_label(), tree)
+        html = templates.render_activity_page(act)
         self._html(200, html)
 
     def _api_task(self, task_id: int) -> None:
@@ -771,6 +805,30 @@ class Handler(BaseHTTPRequestHandler):
         _open_in_explorer(path)
         self._json({"ok": True})
 
+    def _api_open_workspace(self) -> None:
+        """POST /api/workspace/open — open a workspace path in OS file manager.
+
+        Body: ``{"path": "<rel>"}`` where rel is empty for the workspace root,
+        otherwise a forward-slash path relative to ROOT. Path traversal is
+        blocked: anything resolving outside ROOT raises FileNotFoundError.
+        """
+        body = self._read_json()
+        rel = str(body.get("path") or "").strip().lstrip("/").lstrip("\\")
+        if ROOT is None:
+            raise FileNotFoundError("workspace root is not set")
+        target = (ROOT / rel).resolve()
+        root_resolved = ROOT.resolve()
+        try:
+            target.relative_to(root_resolved)
+        except ValueError as exc:
+            raise FileNotFoundError(
+                f"path '{rel}' resolves outside the workspace"
+            ) from exc
+        if not target.exists():
+            raise FileNotFoundError(f"path not found: {rel or '/'}")
+        _open_in_explorer(target if target.is_dir() else target.parent)
+        self._json({"ok": True, "opened": str(target)})
+
     def _api_open_file(self) -> None:
         body = self._read_json()
         fid = _as_int(body.get("folder_id"))
@@ -864,11 +922,12 @@ def _register_modules() -> int:
             module_dict = getattr(mod, "MODULE", None)
             if not module_dict:
                 continue
+            slug = module_dict.get("name") or name
             routes = module_dict.get("routes", {}) or {}
             for method in ("GET", "POST", "DELETE"):
                 for pattern_str, handler_fn in routes.get(method, []):
                     MODULE_ROUTES[method].append(
-                        (re.compile(pattern_str), handler_fn)
+                        (re.compile(pattern_str), handler_fn, slug)
                     )
             count += 1
         except Exception as exc:

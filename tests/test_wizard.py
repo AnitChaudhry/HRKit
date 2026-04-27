@@ -68,13 +68,18 @@ def test_needs_wizard_false_after_setting(conn):
 # ---------------------------------------------------------------------------
 # render_wizard_page
 # ---------------------------------------------------------------------------
-def test_render_wizard_page_includes_4_steps(conn):
+def test_render_wizard_page_includes_5_steps(conn):
     _ensure_settings_table(conn)
     html = wizard.render_wizard_page(conn)
     assert 'data-step="1"' in html
     assert 'data-step="2"' in html
     assert 'data-step="3"' in html
     assert 'data-step="4"' in html
+    assert 'data-step="5"' in html
+    # Modules step renders the picker grid with locked core rows.
+    assert "wm-grid" in html
+    assert 'data-slug="employee"' in html
+    assert 'data-slug="recruitment"' in html
     # Final redirect target.
     assert "/m/employee" in html
 
@@ -126,15 +131,60 @@ def test_step2_writes_provider_and_key(conn):
     assert rows.get("AI_API_KEY") == "sk-or-test"
 
 
-def test_step3_creates_department_and_returns_id(conn):
+def test_step3_skip_leaves_modules_default(conn):
     _ensure_settings_table(conn)
     h = _FakeHandler(conn)
+    wizard.handle_wizard_step(h, {"step": 3, "data": {"skip": True}})
+    code, payload = h.json_responses[0]
+    assert payload["ok"] is True
+    assert payload["next_step"] == 4
+    # Skip should not write ENABLED_MODULES to the settings table.
+    rows = conn.execute(
+        "SELECT key FROM settings WHERE key = 'ENABLED_MODULES'"
+    ).fetchall()
+    assert rows == []
+
+
+def test_step3_persists_module_selection(conn, tmp_path, monkeypatch):
+    _ensure_settings_table(conn)
+    # Point the workspace finder at an isolated dir so config.json doesn't
+    # leak across tests.
+    (tmp_path / "getset.md").write_text("type: workspace\n")
+    monkeypatch.setenv("GETSET_ROOT", str(tmp_path))
+
+    h = _FakeHandler(conn)
     wizard.handle_wizard_step(h, {
-        "step": 3, "data": {"name": "Engineering", "code": "ENG"},
+        "step": 3,
+        "data": {"enabled_modules": ["leave", "payroll"]},
     })
     code, payload = h.json_responses[0]
     assert payload["ok"] is True
     assert payload["next_step"] == 4
+    row = conn.execute(
+        "SELECT value FROM settings WHERE key = 'ENABLED_MODULES'"
+    ).fetchone()
+    assert row is not None
+    import json
+    saved = json.loads(row["value"])
+    # Always-on core gets forced in, plus the user's two extras.
+    assert "department" in saved
+    assert "employee" in saved
+    assert "role" in saved
+    assert "leave" in saved
+    assert "payroll" in saved
+    # Recruitment was not chosen, so it must NOT be in the list.
+    assert "recruitment" not in saved
+
+
+def test_step4_creates_department_and_returns_id(conn):
+    _ensure_settings_table(conn)
+    h = _FakeHandler(conn)
+    wizard.handle_wizard_step(h, {
+        "step": 4, "data": {"name": "Engineering", "code": "ENG"},
+    })
+    code, payload = h.json_responses[0]
+    assert payload["ok"] is True
+    assert payload["next_step"] == 5
     new_id = payload["department_id"]
     row = conn.execute(
         "SELECT name, code FROM department WHERE id = ?", (new_id,)
@@ -143,7 +193,7 @@ def test_step3_creates_department_and_returns_id(conn):
     assert row["code"] == "ENG"
 
 
-def test_step4_creates_employee_with_dept(conn):
+def test_step5_creates_employee_with_dept(conn):
     _ensure_settings_table(conn)
     dept_id = conn.execute(
         "INSERT INTO department (name) VALUES (?)", ("Sales",)
@@ -151,7 +201,7 @@ def test_step4_creates_employee_with_dept(conn):
     conn.commit()
     h = _FakeHandler(conn)
     wizard.handle_wizard_step(h, {
-        "step": 4,
+        "step": 5,
         "data": {
             "employee_code": "EMP-100",
             "full_name": "Sara Sales",

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hrkit"
-version = "0.2.1"
+version = "1.0.0"
 description = "Local-first HR app with BYOK AI agent loop and SQLite-backed modules."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -14,7 +14,7 @@ authors = [
 ]
 keywords = ["hr", "kanban", "sqlite", "byok", "pydantic-ai", "local-first"]
 classifiers = [
-    "Development Status :: 4 - Beta",
+    "Development Status :: 5 - Production/Stable",
     "Environment :: Console",
     "Intended Audience :: End Users/Desktop",
     "License :: OSI Approved :: MIT License",

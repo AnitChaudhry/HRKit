@@ -447,6 +447,118 @@ def cmd_evaluation(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_modules(args: argparse.Namespace) -> int:
+    """List, enable, or disable HR modules in the workspace."""
+    from . import feature_flags
+    root = _resolve_root(args.path)
+    if root is None:
+        return _die("no workspace found; run `init <dir>` first or pass --path")
+    conn = _open_db(root)
+
+    sub = (getattr(args, "modules_action", None) or "list").lower()
+    enabled = set(feature_flags.enabled_modules(conn))
+
+    if sub == "list":
+        print(f"{'module':<14} {'category':<10} {'enabled':<8} description")
+        print("-" * 80)
+        import importlib
+        for slug in feature_flags.ALL_MODULES:
+            try:
+                mod = importlib.import_module(f"hrkit.modules.{slug}")
+                md = getattr(mod, "MODULE", {}) or {}
+            except Exception:
+                md = {}
+            cat = md.get("category") or "hr"
+            on = "yes" if slug in enabled else "no"
+            if slug in feature_flags.ALWAYS_ON:
+                on += " *"
+            desc = (md.get("description") or "").strip()
+            print(f"{slug:<14} {cat:<10} {on:<8} {desc}")
+        print()
+        print("* = always-on core (cannot be disabled)")
+        return 0
+
+    target = (getattr(args, "module_slug", None) or "").strip().lower()
+    if not target:
+        return _die(f"'{sub}' requires a module slug (e.g. hrkit modules {sub} payroll)")
+    if target not in feature_flags.ALL_MODULES:
+        return _die(f"unknown module '{target}'. Try: hrkit modules list")
+
+    if sub == "enable":
+        if target in enabled:
+            print(f"already enabled: {target}")
+            return 0
+        new_set = sorted(enabled | {target})
+        feature_flags.set_enabled_modules(conn, new_set)
+        print(f"enabled: {target}")
+        return 0
+
+    if sub == "disable":
+        if target in feature_flags.ALWAYS_ON:
+            return _die(f"'{target}' is always-on core and cannot be disabled")
+        if target not in enabled:
+            print(f"already disabled: {target}")
+            return 0
+        new_set = sorted(enabled - {target})
+        feature_flags.set_enabled_modules(conn, new_set)
+        print(f"disabled: {target}")
+        return 0
+
+    return _die(f"unknown subcommand 'modules {sub}'. Use list / enable / disable.")
+
+
+def cmd_backup(args: argparse.Namespace) -> int:
+    """Create a tar.gz of the entire workspace (DB + .getset/ + attachments)."""
+    import tarfile, time
+    root = _resolve_root(args.path)
+    if root is None:
+        return _die("no workspace found; run `init <dir>` first or pass --path")
+    out_path = Path(args.output) if args.output else (
+        root / f"hrkit-backup-{time.strftime('%Y%m%d-%H%M%S')}.tar.gz"
+    )
+    out_path = out_path.resolve()
+    if out_path.exists() and not args.force:
+        return _die(f"refusing to overwrite {out_path} (use --force)")
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    print(f"backing up {root} -> {out_path}")
+    skip_names = {"node_modules", "__pycache__", ".git", ".venv"}
+    files = 0
+    with tarfile.open(out_path, "w:gz") as tar:
+        for p in root.rglob("*"):
+            # Skip our own output file in case it lives inside the workspace.
+            if p.resolve() == out_path:
+                continue
+            # Skip noisy ignored dirs.
+            if any(part in skip_names for part in p.parts):
+                continue
+            try:
+                tar.add(p, arcname=p.relative_to(root), recursive=False)
+                if p.is_file():
+                    files += 1
+            except (OSError, ValueError) as exc:
+                print(f"  skipped {p}: {exc}", file=sys.stderr)
+    size_mb = out_path.stat().st_size / (1024 * 1024)
+    print(f"done: {files} files, {size_mb:.1f} MB -> {out_path}")
+    return 0
+
+
+def cmd_restore(args: argparse.Namespace) -> int:
+    """Extract a backup tarball into a target workspace directory."""
+    import tarfile
+    src = Path(args.backup).resolve()
+    if not src.exists():
+        return _die(f"backup not found: {src}")
+    dst = Path(args.path or Path.cwd()).resolve()
+    if dst.exists() and any(dst.iterdir()) and not args.force:
+        return _die(f"target {dst} is not empty (use --force to overwrite)")
+    dst.mkdir(parents=True, exist_ok=True)
+    print(f"restoring {src} -> {dst}")
+    with tarfile.open(src, "r:gz") as tar:
+        tar.extractall(dst)
+    print("done.")
+    return 0
+
+
 def cmd_seed(args: argparse.Namespace) -> int:
     """Load canonical sample data into the workspace (idempotent)."""
     root = _resolve_root(args.path)
@@ -683,6 +795,31 @@ def build_parser() -> argparse.ArgumentParser:
                    help="actually copy files and update document.file_path")
     s.set_defaults(func=cmd_migrate_folders)
 
+    s = sub.add_parser("modules", help="list / enable / disable HR modules in this workspace")
+    s.add_argument("modules_action", nargs="?", default="list",
+                   choices=["list", "enable", "disable"],
+                   help="action to take (default: list)")
+    s.add_argument("module_slug", nargs="?", default=None,
+                   help="module slug for enable/disable (e.g. payroll)")
+    s.add_argument("--path", help="workspace root (defaults to auto-discovery)")
+    s.set_defaults(func=cmd_modules)
+
+    s = sub.add_parser("backup",
+                       help="create a tar.gz snapshot of the workspace (DB + attachments)")
+    s.add_argument("--path", help="workspace root (defaults to auto-discovery)")
+    s.add_argument("-o", "--output", help="output file (default: <workspace>/hrkit-backup-<ts>.tar.gz)")
+    s.add_argument("--force", action="store_true",
+                   help="overwrite the output file if it already exists")
+    s.set_defaults(func=cmd_backup)
+
+    s = sub.add_parser("restore",
+                       help="extract a backup tarball into a target workspace folder")
+    s.add_argument("backup", help="path to a hrkit-backup-*.tar.gz file")
+    s.add_argument("--path", help="target workspace folder (default: cwd)")
+    s.add_argument("--force", action="store_true",
+                   help="extract into a non-empty target")
+    s.set_defaults(func=cmd_restore)
+
     s = sub.add_parser("settings", help="show or set BYOK settings (no args = show)")
     s.add_argument("--path", help="workspace root (defaults to auto-discovery)")
     s.add_argument("--app-name", dest="app_name", help="white-label app name")
@@ -703,6 +840,9 @@ def _register_module_commands(subparsers) -> None:
 
     Each module exports MODULE['cli'] = [(name, build_parser_fn, handle_fn)].
     handle_fn is wrapped so it receives (args, conn) instead of just args.
+    Subcommands are always registered; the runner checks ``feature_flags``
+    at execution time so a disabled module errors with a clear message
+    instead of an argparse "invalid choice".
     """
     import importlib
     try:
@@ -717,6 +857,7 @@ def _register_module_commands(subparsers) -> None:
         module_dict = getattr(mod, "MODULE", None)
         if not module_dict:
             continue
+        slug = module_dict.get("name") or mod_name
         for entry in module_dict.get("cli", []) or []:
             cmd_name, build_fn, handle_fn = entry
             sp = subparsers.add_parser(cmd_name, help=f"({mod_name}) {cmd_name}")
@@ -726,16 +867,29 @@ def _register_module_commands(subparsers) -> None:
             except Exception as exc:
                 print(f"warning: {mod_name}.{cmd_name} parser setup failed: {exc}",
                       file=sys.stderr)
-            sp.set_defaults(func=_make_module_runner(handle_fn))
+            sp.set_defaults(func=_make_module_runner(handle_fn, slug))
 
 
-def _make_module_runner(handle_fn):
-    """Wrap a module's handle_fn(args, conn) into a CLI command(args)->int."""
+def _make_module_runner(handle_fn, module_slug: str):
+    """Wrap a module's handle_fn(args, conn) into a CLI command(args)->int.
+
+    The runner refuses to execute when ``module_slug`` is disabled in the
+    workspace's feature flags, so e.g. ``hrkit payroll-run`` returns a clear
+    error instead of silently mutating data after the user has switched
+    payroll off.
+    """
     def _runner(args: argparse.Namespace) -> int:
         root = _resolve_root(getattr(args, "path", None))
         if root is None:
             return _die("no workspace found; run `init <dir>` first or pass --path")
         conn = _open_db(root)
+        from . import feature_flags
+        if not feature_flags.is_enabled(module_slug, conn):
+            return _die(
+                f"module '{module_slug}' is disabled in this workspace. "
+                f"Re-enable it at /settings (Modules card) or in "
+                f".getset/config.json before running this command."
+            )
         try:
             return int(handle_fn(args, conn) or 0)
         except Exception as exc:

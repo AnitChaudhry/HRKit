@@ -92,6 +92,45 @@ def _actions_for(conn: sqlite3.Connection, slug: str) -> list[dict[str, Any]]:
     return decorated
 
 
+def search_apps(conn: sqlite3.Connection, query: str = "",
+                limit: int = 60) -> list[dict[str, Any]]:
+    """Return apps matching ``query`` from the live Composio catalog.
+
+    Used by the /integrations page search box to reach beyond the 8 curated
+    apps. Falls back to filtering ``CURATED_APPS`` if the SDK is unreachable.
+    """
+    q = (query or "").strip().lower()
+    try:
+        all_apps = composio_sdk.list_apps(conn, limit=200)
+    except Exception:
+        all_apps = []
+    if not all_apps:
+        all_apps = list(CURATED_APPS)
+    if q:
+        out = [a for a in all_apps
+               if q in (a.get("slug") or "").lower()
+               or q in (a.get("name") or "").lower()
+               or q in (a.get("description") or "").lower()]
+    else:
+        out = list(all_apps)
+    return out[:limit]
+
+
+def handle_search(handler) -> None:
+    """GET /api/integrations/search?q=<query> — search the Composio catalog."""
+    from urllib.parse import urlparse, parse_qs
+    parsed = urlparse(handler.path)
+    q = parse_qs(parsed.query).get("q", [""])[0]
+    conn = handler.server.conn  # type: ignore[attr-defined]
+    try:
+        results = search_apps(conn, q)
+    except Exception as exc:  # noqa: BLE001
+        log.exception("search_apps failed")
+        handler._json({"ok": False, "error": str(exc)}, code=500)
+        return
+    handler._json({"ok": True, "query": q, "results": results})
+
+
 def get_state(conn: sqlite3.Connection) -> dict[str, Any]:
     """Assemble the JSON payload that powers the integrations page."""
     configured = composio_sdk.is_configured(conn)
@@ -159,6 +198,8 @@ _PAGE_BODY = r"""
   gap:12px}
 .card{background:var(--panel);border:1px solid var(--border);border-radius:8px;
   padding:14px 16px;display:flex;flex-direction:column;gap:8px}
+.card.preview{opacity:0.55;filter:saturate(0.6)}
+.card.preview:hover{opacity:0.8}
 .card .card-head{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
 .card .card-name{font-weight:600;font-size:14px;margin:0}
 .card .card-desc{color:var(--dim);font-size:12.5px;line-height:1.45;margin:0}
@@ -189,9 +230,8 @@ _PAGE_BODY = r"""
 .tool-row .tool-test:hover{color:var(--text);border-color:var(--accent)}
 .empty{padding:30px;text-align:center;color:var(--dim);font-style:italic;
   background:var(--panel);border:1px dashed var(--border);border-radius:8px}
-#oauth-dialog{padding:0;background:transparent;border:none}
-#oauth-dialog .panel{background:var(--panel);border:1px solid var(--border);
-  border-radius:10px;padding:22px 26px;max-width:480px;color:var(--text)}
+#oauth-dialog{padding:22px 26px}
+#oauth-dialog .panel{background:transparent;border:none;padding:0;color:var(--text)}
 #oauth-dialog .panel h2{margin:0 0 8px;font-size:16px}
 #oauth-dialog .panel p{margin:0 0 12px;color:var(--dim);font-size:13px}
 #oauth-dialog .panel a{color:var(--accent);word-break:break-all;font-size:12px;
@@ -303,11 +343,28 @@ function renderAvailableCard(app) {
 
 function render(state) {
   if (!state.configured) {
+    // Show a preview of what's possible, even without a key — the curated
+    // catalog is rendered in disabled/locked state with a single CTA.
+    const previewCards = (state.available || []).map(function(app) {
+      return (
+        '<div class="card preview" data-slug="' + escapeHtml(app.slug) + '">' +
+        '<div class="card-head">' +
+        '<h3 class="card-name">' + escapeHtml(app.name) + '</h3>' +
+        '<span class="badge idle">locked</span>' +
+        '</div>' +
+        '<p class="card-desc">' + escapeHtml(app.description || '') + '</p>' +
+        '</div>'
+      );
+    }).join('');
     content.innerHTML = (
       '<div class="banner warn">' +
-      '<span>Composio API key is not configured. ' +
-      '<a href="/settings">Add it on the Settings page</a> to enable integrations.</span>' +
-      '</div>'
+      '<span>Add your Composio API key on the <a href="/settings">Settings page</a> to unlock these integrations. ' +
+      'Composio handles the OAuth flow for Gmail, Drive, Slack, and 200+ other apps.</span>' +
+      '</div>' +
+      '<div class="section-title">Apps you\'ll be able to connect (' + (state.available || []).length + ')</div>' +
+      '<div class="cards">' + previewCards + '</div>' +
+      '<p style="margin-top:18px;font-size:12px;color:var(--dim);text-align:center">' +
+      'Don\'t have a Composio key? Get one free at <a href="https://app.composio.dev/" target="_blank" rel="noopener">app.composio.dev</a> — sign up, copy the key, paste it on Settings.</p>'
     );
     return;
   }
@@ -329,7 +386,7 @@ function render(state) {
   );
   parts.push(
     '<div id="available-wrap" style="display:none">' +
-    '<input type="search" class="search-box" placeholder="Filter apps…" oninput="filterAvailable(this.value)">' +
+    '<input type="search" class="search-box" placeholder="Search 200+ apps (Gmail, Slack, Notion, …)" oninput="searchAvailable(this.value)">' +
     '<div class="cards" id="available-cards">' + state.available.map(renderAvailableCard).join('') + '</div>' +
     '</div>'
   );
@@ -342,11 +399,35 @@ function toggleAvailable() {
   w.style.display = (w.style.display === 'none') ? '' : 'none';
 }
 
-function filterAvailable(q) {
-  q = (q || '').toLowerCase();
-  document.querySelectorAll('#available-cards .card').forEach(c => {
-    c.style.display = c.textContent.toLowerCase().includes(q) ? '' : 'none';
-  });
+let _searchTimer = null;
+async function searchAvailable(q) {
+  // Debounced server-side search hitting the live Composio catalog (200+ apps).
+  // Empty query falls back to the curated set already in the DOM.
+  if (_searchTimer) clearTimeout(_searchTimer);
+  _searchTimer = setTimeout(async function() {
+    const wrap = document.getElementById('available-cards');
+    if (!wrap) return;
+    if (!q || !q.trim()) {
+      // Restore the curated set from cached state.
+      if (cachedState && cachedState.available) {
+        wrap.innerHTML = cachedState.available.map(renderAvailableCard).join('');
+      }
+      return;
+    }
+    wrap.innerHTML = '<div class="empty" style="grid-column:1/-1">Searching…</div>';
+    try {
+      const r = await fetch('/api/integrations/search?q=' + encodeURIComponent(q));
+      const j = await r.json();
+      if (!j.ok) throw new Error(j.error || 'search failed');
+      if (!j.results.length) {
+        wrap.innerHTML = '<div class="empty" style="grid-column:1/-1">No apps match "' + escapeHtml(q) + '".</div>';
+        return;
+      }
+      wrap.innerHTML = j.results.map(renderAvailableCard).join('');
+    } catch (err) {
+      wrap.innerHTML = '<div class="empty" style="grid-column:1/-1">Search failed: ' + escapeHtml(err.message || err) + '</div>';
+    }
+  }, 250);
 }
 
 async function loadState(showToast) {

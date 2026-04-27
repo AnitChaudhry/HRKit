@@ -36,31 +36,43 @@ log = logging.getLogger(__name__)
 
 # Operations the agent can ask query_records to perform. Kept as module-level
 # constants so the dispatcher and the system prompt stay in sync.
-_ALLOWED_OPS = ("list", "get", "create", "delete")
+_ALLOWED_OPS = ("list", "get", "create", "update", "delete")
 
 
 # ---------------------------------------------------------------------------
 # Module dispatch
 # ---------------------------------------------------------------------------
-def _allowed_modules() -> list[str]:
-    """Return the canonical list of module slugs the agent may touch.
+def _allowed_modules(conn=None) -> list[str]:
+    """Return the module slugs the agent may touch right now.
 
-    Pulled from ``hrkit.modules.__all__`` so a new module added to that list
-    becomes available to the agent automatically.
+    Filters ``hrkit.modules.__all__`` through :mod:`feature_flags` so disabled
+    modules disappear from the agent's view — both in the system prompt and
+    in dispatch validation. With ``conn=None`` falls back to the registered
+    set of all modules (used at import time before a workspace is available).
     """
     pkg = importlib.import_module("hrkit.modules")
-    return list(getattr(pkg, "__all__", []))
+    universe = list(getattr(pkg, "__all__", []))
+    if conn is None:
+        return universe
+    try:
+        from . import feature_flags
+        enabled = set(feature_flags.enabled_modules(conn))
+    except Exception:
+        return universe
+    return [m for m in universe if m in enabled]
 
 
-def _load_module(slug: str):
+def _load_module(slug: str, conn=None):
     """Import ``hrkit.modules.<slug>`` if it is whitelisted.
 
-    Raises ``ValueError`` for unknown slugs so the LLM gets a clear, short
-    error string back through the tool channel.
+    Raises ``ValueError`` for unknown slugs (or slugs whose module is
+    disabled in this workspace) so the LLM gets a clear, short error
+    string back through the tool channel.
     """
-    if slug not in _allowed_modules():
+    allowed = _allowed_modules(conn)
+    if slug not in allowed:
         raise ValueError(
-            f"unknown module '{slug}'. allowed: {', '.join(_allowed_modules())}"
+            f"module '{slug}' is not available. allowed: {', '.join(allowed)}"
         )
     return importlib.import_module(f"hrkit.modules.{slug}")
 
@@ -78,6 +90,7 @@ def _resolve_helper(mod, op: str) -> Callable:
         "list":   ("list_rows",),
         "get":    ("get_row",),
         "create": ("create_row",),
+        "update": ("update_row",),
         "delete": ("delete_row",),
     }
     synonyms = {
@@ -88,6 +101,9 @@ def _resolve_helper(mod, op: str) -> Callable:
         "create": ("create_request", "create_run", "create_review",
                    "create_attendance", "create_task", "create_record",
                    "create_candidate", "create_leave_request"),
+        "update": ("update_request", "update_run", "update_review",
+                   "update_attendance", "update_task", "update_record",
+                   "update_candidate"),
         "delete": ("delete_request", "delete_run", "delete_review",
                    "delete_attendance", "delete_task", "delete_record",
                    "delete_candidate"),
@@ -111,7 +127,7 @@ def _dispatch(conn, module: str, op: str, args: dict[str, Any] | None) -> Any:
     if op not in _ALLOWED_OPS:
         raise ValueError(f"op must be one of {_ALLOWED_OPS}, got '{op}'")
     args = dict(args or {})
-    mod = _load_module(module)
+    mod = _load_module(module, conn)
     fn = _resolve_helper(mod, op)
 
     if op == "list":
@@ -127,6 +143,17 @@ def _dispatch(conn, module: str, op: str, args: dict[str, Any] | None) -> Any:
         if not isinstance(data, dict):
             data = {k: v for k, v in args.items() if k not in ("module", "op")}
         return fn(conn, data)
+    if op == "update":
+        item_id = args.get("id") or args.get("item_id")
+        if item_id is None:
+            raise ValueError("'update' requires args.id")
+        data = args.get("data")
+        if not isinstance(data, dict):
+            data = {k: v for k, v in args.items()
+                    if k not in ("module", "op", "id", "item_id")}
+        if not data:
+            raise ValueError("'update' requires args.data with at least one field")
+        return fn(conn, int(item_id), data)
     if op == "delete":
         item_id = args.get("id") or args.get("item_id")
         if item_id is None:
@@ -167,7 +194,7 @@ def _build_query_tool(conn) -> Callable[..., str]:
     so we keep types simple (str / str / dict) and document each argument in
     the docstring — that doc string is what the LLM sees.
     """
-    allowed = _allowed_modules()
+    allowed = _allowed_modules(conn)
     allowed_str = ", ".join(allowed)
 
     def query_records(module: str, op: str, args: dict | None = None) -> str:
@@ -175,10 +202,11 @@ def _build_query_tool(conn) -> Callable[..., str]:
 
         Args:
           module: One of the HR module slugs ({modules}).
-          op: One of 'list', 'get', 'create', 'delete'.
+          op: One of 'list', 'get', 'create', 'update', 'delete'.
           args: For 'get'/'delete' use {{"id": <int>}}. For 'create' use
-                {{"data": {{...fields...}}}} or pass fields inline. For 'list'
-                pass {{}} or omit.
+                {{"data": {{...fields...}}}} or pass fields inline. For
+                'update' use {{"id": <int>, "data": {{...fields_to_change...}}}}.
+                For 'list' pass {{}} or omit.
 
         Returns a JSON string with the result, or an error message prefixed
         with 'error:'. Always confirm with the user before calling 'delete'.
@@ -198,8 +226,8 @@ def _build_query_tool(conn) -> Callable[..., str]:
     return query_records
 
 
-def _build_system_prompt() -> str:
-    modules = ", ".join(_allowed_modules())
+def _build_system_prompt(conn=None) -> str:
+    modules = ", ".join(_allowed_modules(conn))
     return (
         f"You are an HR assistant for {branding.app_name()}. "
         "Use the query_records tool to read or modify HR data. "
@@ -317,7 +345,7 @@ async def handle_chat_message(handler, body: dict[str, Any]) -> None:
             employee_id = int(employee_id_raw) if employee_id_raw else None
         except (TypeError, ValueError):
             employee_id = None
-        system = _build_system_prompt()
+        system = _build_system_prompt(conn)
         if employee_id and workspace_root is not None:
             try:
                 ctx = employee_fs.build_ai_context(conn, workspace_root, employee_id)

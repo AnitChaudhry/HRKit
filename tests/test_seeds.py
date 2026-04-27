@@ -92,7 +92,7 @@ def test_recruitment_candidates_cover_pipeline(conn):
 
 
 # ---------------------------------------------------------------------------
-# Wizard step 4 honors seed_sample_data checkbox
+# Wizard final step (5) honors seed_sample_data checkbox
 # ---------------------------------------------------------------------------
 class _FakeServer:
     def __init__(self, conn: sqlite3.Connection) -> None:
@@ -115,7 +115,7 @@ def _ensure_settings_table(conn: sqlite3.Connection) -> None:
     )
 
 
-def test_wizard_step4_with_seed_checkbox_loads_sample_data(conn):
+def test_wizard_final_step_with_seed_checkbox_loads_sample_data(conn):
     _ensure_settings_table(conn)
     dept_id = conn.execute(
         "INSERT INTO department (name) VALUES (?)", ("Engineering",)
@@ -123,7 +123,7 @@ def test_wizard_step4_with_seed_checkbox_loads_sample_data(conn):
     conn.commit()
     h = _FakeHandler(conn)
     wizard.handle_wizard_step(h, {
-        "step": 4,
+        "step": 5,
         "data": {
             "employee_code": "EMP-100",
             "full_name": "First Person",
@@ -141,7 +141,7 @@ def test_wizard_step4_with_seed_checkbox_loads_sample_data(conn):
     ).fetchone()[0] == 9  # 1 wizard + 8 sample
 
 
-def test_wizard_step4_without_seed_checkbox_skips_sample_data(conn):
+def test_wizard_final_step_without_seed_checkbox_skips_sample_data(conn):
     _ensure_settings_table(conn)
     dept_id = conn.execute(
         "INSERT INTO department (name) VALUES (?)", ("Engineering",)
@@ -149,7 +149,7 @@ def test_wizard_step4_without_seed_checkbox_skips_sample_data(conn):
     conn.commit()
     h = _FakeHandler(conn)
     wizard.handle_wizard_step(h, {
-        "step": 4,
+        "step": 5,
         "data": {
             "employee_code": "EMP-100",
             "full_name": "First Person",

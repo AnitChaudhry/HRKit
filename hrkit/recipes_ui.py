@@ -17,7 +17,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from hrkit import ai, ai_tools, recipes
+from hrkit import ai, ai_tools, branding, composio_sdk, feature_flags, recipes
 from hrkit.templates import render_module_page
 
 log = logging.getLogger(__name__)
@@ -35,6 +35,108 @@ def _workspace_root_for(handler) -> Path | None:
     except Exception:  # noqa: BLE001
         pass
     return None
+
+
+# ---------------------------------------------------------------------------
+# Tool + event catalog (powers the recipe editor's pickers)
+# ---------------------------------------------------------------------------
+# Domain events that hrkit module code emits via ``hooks.emit``. Surfaced as
+# the Trigger dropdown in the recipe editor so users don't type magic strings.
+KNOWN_EVENTS: list[dict[str, str]] = [
+    {"slug": "",                          "label": "(no trigger — run manually)"},
+    {"slug": "recruitment.hired",         "label": "Recruitment: candidate hired"},
+    {"slug": "leave.approved",            "label": "Leave: request approved"},
+    {"slug": "payroll.payslip_generated", "label": "Payroll: payslip generated"},
+]
+
+
+def _builtin_tool_catalog() -> list[dict[str, str]]:
+    """Always-available tools that ship with hrkit core."""
+    return [
+        {
+            "slug": ai_tools.WEB_SEARCH_SLUG,
+            "name": "Web search",
+            "description": "Run a DuckDuckGo search and return the top results.",
+            "source": "built-in",
+            "source_label": "Built-in",
+        },
+        {
+            "slug": ai_tools.WEB_FETCH_SLUG,
+            "name": "Web fetch",
+            "description": "Fetch a URL and return its readable text.",
+            "source": "built-in",
+            "source_label": "Built-in",
+        },
+        {
+            "slug": "QUERY_RECORDS",
+            "name": "Query HR data",
+            "description": "List, get, create, update, or delete records in any enabled HR module.",
+            "source": "built-in",
+            "source_label": "Built-in",
+        },
+    ]
+
+
+def _composio_tool_catalog(conn) -> list[dict[str, str]]:
+    """Composio actions — only for connected apps; respects per-action toggles."""
+    if not composio_sdk.is_configured(conn):
+        return []
+    disabled = branding.composio_disabled_tools(conn)
+    out: list[dict[str, str]] = []
+    seen: set[str] = set()
+    try:
+        connected = composio_sdk.list_connections(conn)
+    except Exception:  # noqa: BLE001 — degrade gracefully
+        return []
+    for c in connected:
+        slug = (c.get("toolkit_slug") or "").lower()
+        if not slug or slug in seen:
+            continue
+        seen.add(slug)
+        try:
+            actions = composio_sdk.list_actions(conn, app_slug=slug, limit=200)
+        except Exception:
+            continue
+        app_label = slug.replace("_", " ").title()
+        for action in actions:
+            if action.get("deprecated"):
+                continue
+            tool_slug = str(action.get("slug") or "").upper()
+            if not tool_slug or tool_slug in disabled:
+                continue
+            out.append({
+                "slug": tool_slug,
+                "name": action.get("name") or tool_slug,
+                "description": action.get("description") or "",
+                "source": f"composio:{slug}",
+                "source_label": f"Composio: {app_label}",
+            })
+    return out
+
+
+def get_catalog(conn) -> dict[str, list]:
+    """Aggregate every tool the recipe editor should offer, grouped by source.
+
+    Built-in (always) + Composio actions for connected apps. The events
+    list is fixed today (the three module-emitted hooks). Returns:
+
+        {"tools": [{slug, name, description, source, source_label}, ...],
+         "events": [{slug, label}, ...]}
+    """
+    return {
+        "tools": _builtin_tool_catalog() + _composio_tool_catalog(conn),
+        "events": list(KNOWN_EVENTS),
+    }
+
+
+def handle_catalog(handler) -> None:
+    """GET /api/recipes/catalog — return tools + events for the editor."""
+    conn = handler.server.conn  # type: ignore[attr-defined]
+    try:
+        handler._json({"ok": True, **get_catalog(conn)})
+    except Exception as exc:  # noqa: BLE001
+        log.exception("recipes catalog failed")
+        handler._json({"ok": False, "error": str(exc)}, code=500)
 
 
 # ---------------------------------------------------------------------------
@@ -93,10 +195,30 @@ _PAGE_BODY = r"""
 .rec-card .acts button.danger:hover{background:var(--red);color:#fff}
 .empty{padding:30px;text-align:center;color:var(--dim);font-style:italic;
   background:var(--panel);border:1px dashed var(--border);border-radius:8px}
-#editor-dialog{padding:0;background:transparent;border:none}
-#editor-dialog .panel{background:var(--panel);border:1px solid var(--border);
-  border-radius:10px;padding:22px 26px;width:600px;max-width:92vw;color:var(--text);
-  max-height:90vh;overflow-y:auto}
+#editor-dialog{padding:22px 26px}
+#editor-dialog .panel{background:transparent;border:none;
+  padding:0;color:var(--text)}
+.tool-picker{border:1px solid var(--border);border-radius:8px;background:var(--bg);
+  padding:10px}
+.tool-picker input[type=search]{width:100%;margin-bottom:8px}
+.tool-list{max-height:240px;overflow-y:auto;display:flex;flex-direction:column;gap:2px}
+.tool-group{margin-top:6px}
+.tool-group:first-child{margin-top:0}
+.tool-group-head{font-size:10.5px;color:var(--dim);text-transform:uppercase;
+  letter-spacing:0.6px;padding:6px 4px 3px;font-weight:600;
+  position:sticky;top:0;background:var(--bg);z-index:1}
+.tool-row{display:flex;gap:8px;align-items:flex-start;padding:6px 8px;border-radius:5px;
+  cursor:pointer;font-size:12.5px}
+.tool-row:hover{background:rgba(255,255,255,0.04)}
+.tool-row input{margin-top:3px;flex-shrink:0}
+.tool-row .tn{font-weight:500;color:var(--text)}
+.tool-row .ts{font-family:'JetBrains Mono','Menlo',monospace;font-size:10.5px;color:var(--mute)}
+.tool-row .td{font-size:11px;color:var(--dim);margin-top:2px;line-height:1.35}
+.tool-summary{margin-top:8px;font-size:11.5px;color:var(--dim)}
+.tool-summary .chip{display:inline-block;background:color-mix(in srgb,var(--accent) 18%,transparent);
+  color:var(--accent);font-family:'JetBrains Mono','Menlo',monospace;font-size:10.5px;
+  padding:2px 6px;border-radius:3px;margin:1px 3px 1px 0}
+.tool-empty{padding:10px;color:var(--dim);font-style:italic;font-size:12px}
 #editor-dialog h2{margin:0 0 12px;font-size:16px}
 #editor-dialog label{display:block;font-size:12px;color:var(--dim);
   margin-top:10px;margin-bottom:4px}
@@ -142,12 +264,16 @@ _PAGE_BODY = r"""
     </div>
     <label>Description</label>
     <input id="ed-description" placeholder="One-line summary">
-    <label>Tools (comma-separated upper-case slugs)</label>
-    <input id="ed-tools" placeholder="GMAIL_SEND_EMAIL, WEB_SEARCH">
-    <label>Inputs (comma-separated names; placeholders use {name})</label>
+    <label>Tools the AI may use</label>
+    <div class="tool-picker">
+      <input type="search" id="ed-tools-filter" placeholder="Filter tools…">
+      <div id="ed-tools-list" class="tool-list">Loading available tools…</div>
+      <div class="tool-summary" id="ed-tools-summary">No tools selected.</div>
+    </div>
+    <label>Inputs (one or more placeholder names — used as {name} in the prompt)</label>
     <input id="ed-inputs" placeholder="candidate_name, candidate_email, position">
-    <label>Trigger event (optional, e.g. recruitment.hired)</label>
-    <input id="ed-trigger" placeholder="">
+    <label>Trigger</label>
+    <select id="ed-trigger"><option value="">(loading…)</option></select>
     <label>Prompt template</label>
     <textarea id="ed-body" placeholder="Send a warm offer letter to {candidate_name} at {candidate_email} for the {position} role."></textarea>
     <menu>
@@ -207,10 +333,99 @@ async function load() {
   }
 }
 
-function openEditor(slug) {
+// Tool catalog (lazy-loaded once per page load) and current selection.
+let toolCatalog = null;
+let selectedTools = new Set();
+
+async function ensureCatalog() {
+  if (toolCatalog) return toolCatalog;
+  try {
+    const r = await fetch('/api/recipes/catalog');
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.error || 'catalog load failed');
+    toolCatalog = j;
+  } catch (err) {
+    toolCatalog = {tools: [], events: [{slug:'',label:'(no trigger — run manually)'}]};
+    toast('Could not load tool catalog: ' + (err.message || err), 'error');
+  }
+  // Populate the trigger dropdown once.
+  const trig = document.getElementById('ed-trigger');
+  trig.innerHTML = (toolCatalog.events || [])
+    .map(e => '<option value="' + escapeHtml(e.slug) + '">' + escapeHtml(e.label) + '</option>')
+    .join('');
+  return toolCatalog;
+}
+
+function renderToolList(filterStr) {
+  const list = document.getElementById('ed-tools-list');
+  if (!toolCatalog) { list.innerHTML = '<div class="tool-empty">Loading…</div>'; return; }
+  const tools = toolCatalog.tools || [];
+  const q = (filterStr || '').toLowerCase();
+  const matched = tools.filter(t =>
+    !q ||
+    t.slug.toLowerCase().includes(q) ||
+    (t.name || '').toLowerCase().includes(q) ||
+    (t.description || '').toLowerCase().includes(q)
+  );
+  if (!matched.length) {
+    list.innerHTML = '<div class="tool-empty">No tools match "' + escapeHtml(filterStr) + '". '
+      + 'Connect more apps on <a href="/integrations">/integrations</a>.</div>';
+    updateSummary();
+    return;
+  }
+  // Group by source_label.
+  const groups = {};
+  matched.forEach(t => {
+    const k = t.source_label || 'Other';
+    (groups[k] = groups[k] || []).push(t);
+  });
+  const order = ['Built-in'].concat(Object.keys(groups).filter(k => k !== 'Built-in').sort());
+  const out = [];
+  order.forEach(k => {
+    if (!groups[k]) return;
+    out.push('<div class="tool-group">');
+    out.push('<div class="tool-group-head">' + escapeHtml(k) + ' (' + groups[k].length + ')</div>');
+    groups[k].forEach(t => {
+      const checked = selectedTools.has(t.slug) ? ' checked' : '';
+      out.push(
+        '<label class="tool-row">' +
+        '<input type="checkbox" data-slug="' + escapeHtml(t.slug) + '"' + checked + '>' +
+        '<div>' +
+        '<div><span class="tn">' + escapeHtml(t.name || t.slug) + '</span> ' +
+        '<span class="ts">' + escapeHtml(t.slug) + '</span></div>' +
+        (t.description ? '<div class="td">' + escapeHtml(t.description) + '</div>' : '') +
+        '</div>' +
+        '</label>'
+      );
+    });
+    out.push('</div>');
+  });
+  list.innerHTML = out.join('');
+  list.querySelectorAll('input[type=checkbox]').forEach(box => {
+    box.addEventListener('change', () => {
+      if (box.checked) selectedTools.add(box.dataset.slug);
+      else selectedTools.delete(box.dataset.slug);
+      updateSummary();
+    });
+  });
+  updateSummary();
+}
+
+function updateSummary() {
+  const el = document.getElementById('ed-tools-summary');
+  if (!selectedTools.size) {
+    el.innerHTML = '<em>No tools selected — the AI will only read its prompt.</em>';
+    return;
+  }
+  el.innerHTML = 'Selected: ' +
+    Array.from(selectedTools).map(s => '<span class="chip">' + escapeHtml(s) + '</span>').join('');
+}
+
+async function openEditor(slug) {
   const dlg = document.getElementById('editor-dialog');
   const title = document.getElementById('editor-title');
   const set = (id, val) => document.getElementById(id).value = val || '';
+  await ensureCatalog();
   if (slug) {
     const r = recipes.find(x => x.slug === slug);
     if (!r) return;
@@ -219,9 +434,9 @@ function openEditor(slug) {
     set('ed-slug', r.slug);
     set('ed-name', r.name);
     set('ed-description', r.description);
-    set('ed-tools', (r.tools || []).join(', '));
+    selectedTools = new Set(r.tools || []);
     set('ed-inputs', (r.inputs || []).join(', '));
-    set('ed-trigger', r.trigger);
+    set('ed-trigger', r.trigger || '');
     fetch('/api/recipes/' + encodeURIComponent(r.slug)).then(rs => rs.json()).then(d => {
       if (d.ok && d.recipe) set('ed-body', d.recipe.body || '');
     });
@@ -231,13 +446,21 @@ function openEditor(slug) {
     set('ed-slug', '');
     set('ed-name', '');
     set('ed-description', '');
-    set('ed-tools', '');
+    selectedTools = new Set();
     set('ed-inputs', '');
     set('ed-trigger', '');
     set('ed-body', '');
   }
+  document.getElementById('ed-tools-filter').value = '';
+  renderToolList('');
   dlg.showModal();
 }
+
+document.addEventListener('input', (ev) => {
+  if (ev.target && ev.target.id === 'ed-tools-filter') {
+    renderToolList(ev.target.value);
+  }
+});
 
 async function saveRecipe() {
   const get = (id) => document.getElementById(id).value.trim();
@@ -245,7 +468,7 @@ async function saveRecipe() {
     slug: get('ed-slug'),
     name: get('ed-name'),
     description: get('ed-description'),
-    tools: get('ed-tools'),
+    tools: Array.from(selectedTools),
     inputs: get('ed-inputs'),
     trigger: get('ed-trigger'),
     body: document.getElementById('ed-body').value,

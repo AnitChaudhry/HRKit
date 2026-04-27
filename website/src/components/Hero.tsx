@@ -1,8 +1,10 @@
 import { motion } from 'motion/react';
 import { ArrowUpRight, Github } from 'lucide-react';
 import { BlurText } from './BlurText';
+import { useLatestVersion } from '../hooks/useLatestVersion';
 
 export function Hero() {
+  const version = useLatestVersion();
   return (
     <section className="relative overflow-hidden" style={{ height: '1100px' }}>
       {/* Video background */}
@@ -39,14 +41,19 @@ export function Hero() {
         style={{ paddingTop: '150px' }}
       >
         {/* Badge pill */}
-        <div className="liquid-glass rounded-full px-1 py-1 inline-flex items-center gap-2">
-          <span className="bg-white text-black rounded-full px-3 py-1 text-xs font-semibold">
-            New
+        <a
+          href="https://github.com/AnitChaudhry/HRKit/releases/latest"
+          target="_blank"
+          rel="noreferrer"
+          className="liquid-glass rounded-full px-1 py-1 inline-flex items-center gap-2 hover:bg-white/10 transition-colors"
+        >
+          <span className="bg-white text-black rounded-full px-3 py-1 text-xs font-semibold tabular-nums">
+            v{version}
           </span>
           <span className="px-3 text-xs text-white/90 font-body">
             Introducing the open-source local HR app.
           </span>
-        </div>
+        </a>
 
         {/* Heading */}
         <BlurText

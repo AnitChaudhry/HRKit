@@ -155,8 +155,50 @@ def create_row(conn: sqlite3.Connection, data: dict[str, Any]) -> int:
     return int(cur.lastrowid)
 
 
+def _would_cycle(conn: sqlite3.Connection, employee_id: int,
+                 proposed_manager_id: int | None) -> bool:
+    """Return True if assigning proposed_manager_id to employee_id would loop.
+
+    Walks up from the proposed manager. A loop happens when:
+      - the proposed manager is the employee themselves
+      - the proposed manager already reports (transitively) to the employee
+    """
+    if proposed_manager_id is None or proposed_manager_id == "":
+        return False
+    try:
+        proposed_manager_id = int(proposed_manager_id)
+    except (TypeError, ValueError):
+        return False
+    if proposed_manager_id == int(employee_id):
+        return True
+    seen: set[int] = set()
+    current: int | None = proposed_manager_id
+    while current is not None:
+        if current in seen:
+            return True
+        seen.add(current)
+        if current == int(employee_id):
+            return True
+        cur = conn.execute(
+            "SELECT manager_id FROM employee WHERE id = ?", (current,)
+        ).fetchone()
+        if not cur:
+            return False
+        nxt = cur["manager_id"]
+        current = int(nxt) if nxt not in (None, "") else None
+    return False
+
+
 def update_row(conn: sqlite3.Connection, item_id: int, data: dict[str, Any]) -> None:
     """Patch only the fields supplied."""
+    if "manager_id" in data:
+        proposed = data["manager_id"]
+        proposed_int = int(proposed) if proposed not in (None, "") else None
+        if _would_cycle(conn, int(item_id), proposed_int):
+            raise ValueError(
+                "manager_id would create a reporting cycle"
+            )
+
     fields: list[str] = []
     values: list[Any] = []
     simple = (
@@ -197,6 +239,64 @@ def _list_options(conn: sqlite3.Connection, table: str, label_col: str) -> list[
     return [{"id": r["id"], "label": r["label"]} for r in cur.fetchall()]
 
 
+def _list_managers(conn: sqlite3.Connection,
+                   exclude_id: int | None = None) -> list[dict[str, Any]]:
+    """Return active employees as {id, label} for the manager picker.
+
+    Excludes ``exclude_id`` (so an employee can't be set as their own manager)
+    and excludes anyone who already reports — directly or transitively — to
+    ``exclude_id``, so picking from this list cannot create a cycle.
+    """
+    rows = conn.execute(
+        "SELECT id, employee_code, full_name FROM employee "
+        "ORDER BY full_name"
+    ).fetchall()
+    if exclude_id is None:
+        return [
+            {
+                "id": r["id"],
+                "label": f"{r['full_name']} ({r['employee_code']})",
+            }
+            for r in rows
+        ]
+
+    # Build a set of ids that descend from exclude_id (cannot be its manager).
+    forbidden: set[int] = {int(exclude_id)}
+    children_of: dict[int, list[int]] = {}
+    for r in rows:
+        cur = conn.execute(
+            "SELECT id FROM employee WHERE manager_id = ?", (r["id"],)
+        ).fetchall()
+        children_of[int(r["id"])] = [int(c["id"]) for c in cur]
+    stack = [int(exclude_id)]
+    while stack:
+        nid = stack.pop()
+        for child in children_of.get(nid, []):
+            if child not in forbidden:
+                forbidden.add(child)
+                stack.append(child)
+
+    return [
+        {
+            "id": r["id"],
+            "label": f"{r['full_name']} ({r['employee_code']})",
+        }
+        for r in rows
+        if int(r["id"]) not in forbidden
+    ]
+
+
+def _direct_reports(conn: sqlite3.Connection, manager_id: int) -> list[dict[str, Any]]:
+    cur = conn.execute(
+        "SELECT e.id, e.employee_code, e.full_name, e.email, e.status, "
+        "       r.title AS role "
+        "FROM employee e LEFT JOIN role r ON r.id = e.role_id "
+        "WHERE e.manager_id = ? ORDER BY e.full_name",
+        (int(manager_id),),
+    )
+    return [_row_to_dict(row) for row in cur.fetchall()]
+
+
 # ---------------------------------------------------------------------------
 # HTML rendering
 # ---------------------------------------------------------------------------
@@ -215,7 +315,8 @@ def _esc(value: Any) -> str:
 
 def _render_list_html(rows: list[dict[str, Any]],
                       depts: list[dict[str, Any]],
-                      roles: list[dict[str, Any]]) -> str:
+                      roles: list[dict[str, Any]],
+                      managers: list[dict[str, Any]]) -> str:
     head = "".join(f"<th>{_esc(c.replace('_', ' ').title())}</th>" for c in LIST_COLUMNS)
     body_rows: list[str] = []
     for row in rows:
@@ -230,6 +331,9 @@ def _render_list_html(rows: list[dict[str, Any]],
     role_opts = "".join(
         f'<option value="{r["id"]}">{_esc(r["label"])}</option>' for r in roles
     )
+    manager_opts = "".join(
+        f'<option value="{m["id"]}">{_esc(m["label"])}</option>' for m in managers
+    )
     status_opts = "".join(
         f'<option value="{s}"{" selected" if s == "active" else ""}>{s}</option>'
         for s in ALLOWED_STATUS
@@ -238,6 +342,7 @@ def _render_list_html(rows: list[dict[str, Any]],
 <div class="module-toolbar">
   <h1>{LABEL}</h1>
   <button onclick="document.getElementById('create-dlg').showModal()">+ Add Employee</button>
+  <a href="/m/employee/tree" style="padding:7px 14px;border:1px solid var(--border);border-radius:6px;color:var(--dim);text-decoration:none;font-size:13px">Org chart</a>
   <input type="search" placeholder="Search..." oninput="filter(this.value)">
 </div>
 <table class="data-table">
@@ -252,6 +357,7 @@ def _render_list_html(rows: list[dict[str, Any]],
     <label>Phone<input name="phone"></label>
     <label>Department<select name="department_id"><option value="">--</option>{dept_opts}</select></label>
     <label>Role<select name="role_id"><option value="">--</option>{role_opts}</select></label>
+    <label>Reports to<select name="manager_id"><option value="">-- (no manager)</option>{manager_opts}</select></label>
     <label>Hire date<input name="hire_date" type="date"></label>
     <label>Employment type<input name="employment_type" placeholder="full_time / contract"></label>
     <label>Status<select name="status">{status_opts}</select></label>
@@ -273,7 +379,7 @@ async function submitCreate(ev) {{
   ev.preventDefault();
   const fd = new FormData(ev.target);
   const payload = Object.fromEntries(fd.entries());
-  for (const k of ['department_id','role_id']) if (payload[k] === '') delete payload[k];
+  for (const k of ['department_id','role_id','manager_id']) if (payload[k] === '') delete payload[k];
   const r = await fetch('/api/m/employee', {{
     method: 'POST', headers: {{'Content-Type': 'application/json'}},
     body: JSON.stringify(payload),
@@ -299,7 +405,8 @@ def list_view(handler) -> None:
     rows = list_rows(conn)
     depts = _list_options(conn, "department", "name")
     roles = _list_options(conn, "role", "title")
-    body = _render_list_html(rows, depts, roles)
+    managers = _list_managers(conn)
+    body = _render_list_html(rows, depts, roles, managers)
     handler._html(200, render_module_page(title=LABEL, nav_active=NAME, body_html=body))
 
 
@@ -338,6 +445,18 @@ def detail_view(handler, item_id: int) -> None:
         )
         return
 
+    manager_label = ""
+    manager_id_int = row.get("manager_id")
+    if manager_id_int not in (None, ""):
+        mgr_cur = conn.execute(
+            "SELECT id, employee_code, full_name FROM employee WHERE id = ?",
+            (manager_id_int,),
+        ).fetchone()
+        if mgr_cur:
+            manager_label = (
+                f"{mgr_cur['full_name']} ({mgr_cur['employee_code']})"
+            )
+
     fields: list[tuple[str, Any]] = [
         ("Employee code", row.get("employee_code")),
         ("Full name", row.get("full_name")),
@@ -346,7 +465,7 @@ def detail_view(handler, item_id: int) -> None:
         ("Status", row.get("status")),
         ("Department", row.get("department")),
         ("Role", row.get("role")),
-        ("Manager id", row.get("manager_id")),
+        ("Reports to", manager_label),
         ("Employment type", row.get("employment_type")),
         ("Hire date", row.get("hire_date")),
         ("Date of birth", row.get("dob")),
@@ -522,8 +641,96 @@ async function saveNotes(empId) {{
 </script>
 """
 
+    # Reporting structure: department/role/manager pickers + direct reports.
+    depts = _list_options(conn, "department", "name")
+    roles = _list_options(conn, "role", "title")
+    current_dept = row.get("department_id")
+    current_role = row.get("role_id")
+    dept_options = ['<option value="">-- (no department)</option>']
+    for d in depts:
+        sel = " selected" if current_dept and int(current_dept) == int(d["id"]) else ""
+        dept_options.append(f'<option value="{d["id"]}"{sel}>{_esc(d["label"])}</option>')
+    role_options = ['<option value="">-- (no role)</option>']
+    for r in roles:
+        sel = " selected" if current_role and int(current_role) == int(r["id"]) else ""
+        role_options.append(f'<option value="{r["id"]}"{sel}>{_esc(r["label"])}</option>')
+
+    candidate_managers = _list_managers(conn, exclude_id=int(item_id))
+    current_mgr = manager_id_int
+    mgr_options = ['<option value="">-- (no manager)</option>']
+    for m in candidate_managers:
+        sel = " selected" if current_mgr is not None and int(current_mgr) == int(m["id"]) else ""
+        mgr_options.append(
+            f'<option value="{m["id"]}"{sel}>{_esc(m["label"])}</option>'
+        )
+    reports = _direct_reports(conn, int(item_id))
+    if reports:
+        reports_table = (
+            "<table><thead><tr><th>Code</th><th>Name</th>"
+            "<th>Role</th><th>Email</th><th>Status</th></tr></thead><tbody>"
+            + "".join(
+                f"<tr><td>{_esc(rep['employee_code'])}</td>"
+                f"<td><a href=\"/m/employee/{int(rep['id'])}\">{_esc(rep['full_name'])}</a></td>"
+                f"<td>{_esc(rep.get('role') or '')}</td>"
+                f"<td>{_esc(rep['email'])}</td><td>{_esc(rep['status'])}</td></tr>"
+                for rep in reports
+            )
+            + "</tbody></table>"
+        )
+    else:
+        reports_table = '<div class="empty">No direct reports.</div>'
+
+    reporting_body = f"""
+<style>
+  .rep-row{{display:flex;gap:8px;align-items:center;margin-bottom:10px}}
+  .rep-row label{{flex:0 0 96px;color:var(--dim);font-size:12px;margin:0}}
+  .rep-row select{{flex:1;padding:7px 10px;background:var(--bg);
+    color:var(--text);border:1px solid var(--border);border-radius:6px;font-size:13px}}
+  .rep-row button{{padding:7px 14px;border-radius:6px;background:var(--accent);
+    color:#fff;border:none;cursor:pointer;font-size:12px}}
+  .rep-tree-link{{margin:14px 0 12px;font-size:12px}}
+  .rep-tree-link a{{color:var(--accent);text-decoration:none}}
+</style>
+<div class="rep-row">
+  <label>Department</label>
+  <select id="dept-picker">{''.join(dept_options)}</select>
+  <button onclick="saveAssignment({int(item_id)},'department_id','dept-picker')">Update</button>
+</div>
+<div class="rep-row">
+  <label>Role</label>
+  <select id="role-picker">{''.join(role_options)}</select>
+  <button onclick="saveAssignment({int(item_id)},'role_id','role-picker')">Update</button>
+</div>
+<div class="rep-row">
+  <label>Reports to</label>
+  <select id="mgr-picker">{''.join(mgr_options)}</select>
+  <button onclick="saveAssignment({int(item_id)},'manager_id','mgr-picker')">Update</button>
+</div>
+<div class="rep-tree-link"><a href="/m/employee/tree">&rarr; View full org chart</a></div>
+<h4 style="margin:12px 0 6px;font-size:13px;color:var(--dim);text-transform:uppercase;letter-spacing:0.5px">Direct reports</h4>
+{reports_table}
+<script>
+async function saveAssignment(empId, field, pickerId) {{
+  const sel = document.getElementById(pickerId);
+  const value = sel.value === '' ? null : parseInt(sel.value, 10);
+  const payload = {{}}; payload[field] = value;
+  const r = await fetch('/api/m/employee/' + empId, {{
+    method: 'POST', headers: {{'Content-Type': 'application/json'}},
+    body: JSON.stringify(payload),
+  }});
+  if (r.ok) location.reload();
+  else {{
+    let err = 'Update failed';
+    try {{ const j = await r.json(); err = j.error || err; }} catch (e) {{}}
+    alert(err);
+  }}
+}}
+</script>
+"""
+
     related_html = (
-        detail_section(title="HR notes (free-form)", body_html=notes_body)
+        detail_section(title="Reporting structure", body_html=reporting_body)
+        + detail_section(title="HR notes (free-form)", body_html=notes_body)
         + detail_section(title="Custom fields", body_html=custom_body)
         + detail_section(title="Documents", body_html=doc_body)
         + detail_section(title="Recent leave requests", body_html=lr_body)
@@ -539,6 +746,7 @@ async function saveNotes(empId) {{
         item_id=int(item_id),
         api_path=f"/api/m/{NAME}",
         delete_redirect=f"/m/{NAME}",
+        exclude_edit_fields={"reports_to", "department", "role"},
     )
     handler._html(200, html)
 
@@ -647,11 +855,180 @@ def custom_fields_api(handler, item_id: int) -> None:
     handler._json({"ok": True, "fields": saved})
 
 
+def _build_org_tree(conn: sqlite3.Connection) -> tuple[list[dict[str, Any]],
+                                                       dict[int, list[dict[str, Any]]],
+                                                       list[dict[str, Any]]]:
+    """Return (roots, children_by_parent, orphans).
+
+    Roots = employees with no manager. Orphans = employees whose manager_id
+    points at a row that doesn't exist (data integrity edge case — shown in
+    a separate group so they aren't silently lost).
+    """
+    rows = conn.execute(
+        "SELECT e.id, e.employee_code, e.full_name, e.email, e.status, "
+        "       e.manager_id, e.photo_path, "
+        "       r.title AS role, d.name AS department "
+        "FROM employee e "
+        "LEFT JOIN role r ON r.id = e.role_id "
+        "LEFT JOIN department d ON d.id = e.department_id "
+        "ORDER BY e.full_name"
+    ).fetchall()
+    all_ids: set[int] = {int(r["id"]) for r in rows}
+    children: dict[int, list[dict[str, Any]]] = {}
+    roots: list[dict[str, Any]] = []
+    orphans: list[dict[str, Any]] = []
+    for r in rows:
+        d = _row_to_dict(r)
+        mgr = d.get("manager_id")
+        if mgr in (None, ""):
+            roots.append(d)
+        elif int(mgr) in all_ids:
+            children.setdefault(int(mgr), []).append(d)
+        else:
+            orphans.append(d)
+    return roots, children, orphans
+
+
+def _render_tree_node(node: dict[str, Any],
+                      children: dict[int, list[dict[str, Any]]]) -> str:
+    kids = children.get(int(node["id"]), [])
+    name = _esc(node.get("full_name") or "")
+    code = _esc(node.get("employee_code") or "")
+    role = _esc(node.get("role") or "")
+    dept = _esc(node.get("department") or "")
+    status = _esc(node.get("status") or "")
+    role_pill = f'<span class="org-pill org-pill-role">{role}</span>' if role else ""
+    dept_pill = f'<span class="org-pill org-pill-dept">{dept}</span>' if dept else ""
+    count_badge = (
+        f'<span class="org-count">{len(kids)} report{"s" if len(kids) != 1 else ""}</span>' if kids else ""
+    )
+    if kids:
+        kids_html = (
+            '<ul class="org-children">'
+            + "".join(_render_tree_node(c, children) for c in kids)
+            + "</ul>"
+        )
+        return f"""
+<li>
+  <details open class="org-card">
+    <summary>
+      <a class="org-name" href="/m/employee/{int(node["id"])}">{name}</a>
+      <span class="org-code">{code}</span>
+      {role_pill}
+      {dept_pill}
+      <span class="org-status org-status-{status}">{status}</span>
+      {count_badge}
+    </summary>
+    {kids_html}
+  </details>
+</li>"""
+    return f"""
+<li class="org-leaf">
+  <a class="org-name" href="/m/employee/{int(node["id"])}">{name}</a>
+  <span class="org-code">{code}</span>
+  {role_pill}
+  {dept_pill}
+  <span class="org-status org-status-{status}">{status}</span>
+</li>"""
+
+
+_ORG_TREE_CSS = """
+.org-toolbar{display:flex;gap:12px;align-items:center;margin-bottom:18px}
+.org-toolbar h1{margin:0;font-size:22px;font-weight:600}
+.org-toolbar .org-meta{color:var(--dim);font-size:13px;margin-left:auto}
+.org-tree{list-style:none;padding-left:0;margin:0}
+.org-tree ul.org-children{list-style:none;padding-left:22px;margin:6px 0 0 0;
+  border-left:1px solid var(--border)}
+.org-card>summary{display:flex;gap:10px;align-items:center;cursor:pointer;
+  padding:10px 12px;border:1px solid var(--border);border-radius:8px;
+  background:var(--panel);margin:4px 0;list-style:none}
+.org-card>summary::-webkit-details-marker{display:none}
+.org-card>summary::before{content:"\\25B8";color:var(--dim);font-size:10px;
+  display:inline-block;transition:transform .15s ease}
+.org-card[open]>summary::before{transform:rotate(90deg)}
+.org-leaf{display:flex;gap:10px;align-items:center;padding:10px 12px;
+  border:1px solid var(--border);border-radius:8px;background:var(--panel);
+  margin:4px 0;list-style:none}
+.org-name{font-weight:600;color:var(--text);text-decoration:none}
+.org-name:hover{text-decoration:underline}
+.org-code{font-family:'JetBrains Mono',monospace;font-size:11.5px;color:var(--dim)}
+.org-sub{font-size:12px;color:var(--dim);flex:1}
+.org-status{font-size:10px;padding:2px 8px;border-radius:3px;
+  text-transform:uppercase;letter-spacing:0.5px;background:#eef1f6;color:#4b5563}
+.org-status-active{background:#d1fae5;color:#065f46}
+.org-status-on_leave{background:#fef3c7;color:#92400e}
+.org-status-exited{background:#fee2e2;color:#991b1b}
+.org-pill{font-size:11px;padding:2px 8px;border-radius:4px;
+  background:rgba(255,255,255,0.04);color:var(--text);border:1px solid var(--border);
+  white-space:nowrap}
+.org-pill-role{background:color-mix(in srgb,var(--accent) 14%,transparent);
+  color:#a5b4fc;border-color:color-mix(in srgb,var(--accent) 30%,transparent)}
+.org-pill-dept{background:color-mix(in srgb,var(--cyan) 12%,transparent);
+  color:#7dd3fc;border-color:color-mix(in srgb,var(--cyan) 25%,transparent)}
+.org-count{font-size:11px;padding:2px 8px;border-radius:10px;
+  background:color-mix(in srgb,var(--accent) 20%,transparent);color:var(--accent);
+  margin-left:auto}
+.org-empty{padding:40px;text-align:center;color:var(--dim);font-style:italic}
+.org-orphans{margin-top:24px;padding-top:16px;border-top:1px dashed var(--border)}
+.org-orphans h3{font-size:13px;color:var(--dim);text-transform:uppercase;
+  letter-spacing:0.5px;margin:0 0 8px}
+"""
+
+
+def tree_view(handler) -> None:
+    """GET /m/employee/tree — render the org chart as nested cards."""
+    from hrkit.templates import render_module_page
+
+    conn = handler.server.conn  # type: ignore[attr-defined]
+    roots, children, orphans = _build_org_tree(conn)
+    total = sum(1 for _ in conn.execute("SELECT 1 FROM employee"))
+
+    if not roots and not orphans:
+        body_html = (
+            f'<style>{_ORG_TREE_CSS}</style>'
+            '<div class="org-toolbar"><h1>Org chart</h1></div>'
+            '<div class="org-empty">No employees yet. '
+            '<a href="/m/employee">Add your first employee</a> to start.</div>'
+        )
+        handler._html(200, render_module_page(
+            title="Org chart", nav_active=NAME, body_html=body_html))
+        return
+
+    tree_html = (
+        '<ul class="org-tree">'
+        + "".join(_render_tree_node(r, children) for r in roots)
+        + "</ul>"
+    )
+    orphans_html = ""
+    if orphans:
+        orphans_html = (
+            '<div class="org-orphans">'
+            '<h3>Reports to a deleted employee</h3>'
+            '<ul class="org-tree">'
+            + "".join(_render_tree_node(o, children) for o in orphans)
+            + '</ul></div>'
+        )
+
+    body_html = f"""
+<style>{_ORG_TREE_CSS}</style>
+<div class="org-toolbar">
+  <h1>Org chart</h1>
+  <span class="org-meta">{total} employee{'s' if total != 1 else ''} &middot; {len(roots)} top-level</span>
+  <a href="/m/employee" style="font-size:13px;color:var(--accent);text-decoration:none">&larr; Back to list</a>
+</div>
+{tree_html}
+{orphans_html}
+"""
+    handler._html(200, render_module_page(
+        title="Org chart", nav_active=NAME, body_html=body_html))
+
+
 ROUTES = {
     "GET": [
         (r"^/api/m/employee/(\d+)/notes/?$", notes_api),
         (r"^/api/m/employee/(\d+)/custom-fields/?$", custom_fields_api),
         (r"^/api/m/employee/(\d+)/?$", detail_api_json),
+        (r"^/m/employee/tree/?$", tree_view),
         (r"^/m/employee/?$", list_view),
         (r"^/m/employee/(\d+)/?$", detail_view),
     ],
@@ -716,6 +1093,9 @@ MODULE = {
     "name": NAME,
     "label": LABEL,
     "icon": ICON,
+    "category": "core",
+    "requires": ["department", "role"],
+    "description": "Master employee record — contact, salary, manager chain, photo.",
     "ensure_schema": ensure_schema,
     "routes": ROUTES,
     "cli": CLI,

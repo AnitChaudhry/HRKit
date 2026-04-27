@@ -1,2 +1,2 @@
-"""hrkit: folder-native project management."""
-__version__ = "0.1.0"
+"""hrkit: local-first HR app."""
+__version__ = "1.0.0"

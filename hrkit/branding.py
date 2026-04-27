@@ -60,10 +60,51 @@ def _read(conn: sqlite3.Connection | None, key: str, default: str = "") -> str:
 # ---- Public accessors ------------------------------------------------------
 
 def app_name() -> str:
-    """Return the human-readable application name."""
+    """Return the human-readable application name.
+
+    Resolution order: env var → workspace config.json (mirrored by
+    ``set_settings``) → live DB connection at ``hrkit.server.CONN``
+    (with a one-time mirror back to config.json on hit, so the next call
+    short-circuits at the cheaper config.json path) → default. Lazy + best
+    effort so this still works in CLI / test contexts with no live server.
+    """
     val = os.environ.get("APP_NAME")
     if val:
         return val
+    # Workspace config.json (mirrored by set_settings on writes).
+    workspace_root = None
+    try:
+        from . import config as _cfg
+        workspace_root = _cfg.find_workspace()
+        if workspace_root is not None:
+            data = _cfg.load_settings(workspace_root)
+            cfg_val = data.get("app_name") or data.get("APP_NAME")
+            if cfg_val:
+                return str(cfg_val)
+    except Exception:
+        pass
+    # Live server connection (only set while ``hrkit serve`` is running).
+    try:
+        import sys
+        srv = sys.modules.get("hrkit.server")
+        conn = getattr(srv, "CONN", None) if srv is not None else None
+        if conn is not None:
+            db_val = get_setting(conn, "APP_NAME", "")
+            if db_val:
+                # One-time backfill: settings table had a value but config.json
+                # did not. Write it through so future reads are stateless.
+                if workspace_root is not None:
+                    try:
+                        from . import config as _cfg
+                        data = _cfg.load_settings(workspace_root)
+                        if not data.get("app_name"):
+                            data["app_name"] = db_val
+                            _cfg.save_settings(workspace_root, data)
+                    except Exception:
+                        pass
+                return db_val
+    except Exception:
+        pass
     return DEFAULT_APP_NAME
 
 
@@ -140,15 +181,17 @@ def set_composio_disabled_tools(
 
 
 def set_settings(conn: sqlite3.Connection, values: dict) -> None:
-    """Persist a dict of {key: value} into the settings table.
+    """Persist a dict of {key: value} into the settings table + config.json.
 
     Keys are accepted case-insensitively ('app_name' or 'APP_NAME' both work)
     so HTTP forms (lowercase) and CLI args can use the same accessor as
-    internal callers.
-    Empty / None values are skipped (use a separate delete to clear).
+    internal callers. Non-secret keys (currently APP_NAME) are mirrored to
+    ``.getset/config.json`` so renderers without a live DB handle still see
+    the right value. Empty / None values are skipped.
     """
     if not values:
         return
+    persisted: dict[str, str] = {}
     for raw_key, value in values.items():
         key = str(raw_key).upper()
         if key not in ENV_VAR_FOR_KEY:
@@ -159,6 +202,22 @@ def set_settings(conn: sqlite3.Connection, values: dict) -> None:
         if text == "":
             continue
         set_setting(conn, key, text)
+        persisted[key] = text
+
+    if not persisted:
+        return
+    # Mirror non-secret keys to config.json so stateless readers can see them.
+    try:
+        from . import config as _cfg
+        root = _cfg.find_workspace()
+        if root is None:
+            return
+        data = _cfg.load_settings(root)
+        if "APP_NAME" in persisted:
+            data["app_name"] = persisted["APP_NAME"]
+        _cfg.save_settings(root, data)
+    except Exception:  # config write failures are non-fatal — DB is canonical
+        pass
 
 
 def masked(key: str) -> str:

@@ -1,12 +1,13 @@
 """First-run setup wizard.
 
-Wave 4 Agent A5 deliverable. When the workspace is fresh (no employees and
-no settings rows) the server can show a 4-step wizard that captures:
+When the workspace is fresh (no employees and no settings rows) the server
+shows a 5-step wizard that captures:
 
 1. ``APP_NAME`` — branding label
 2. AI provider + key (skippable)
-3. First department
-4. First employee
+3. Module selection (skippable — default = all enabled)
+4. First department
+5. First employee
 
 Each step posts to ``/api/wizard`` and is dispatched by
 :func:`handle_wizard_step`. The frontend in :func:`render_wizard_page` walks
@@ -24,6 +25,7 @@ import sqlite3
 from typing import Any
 
 from . import branding
+from . import feature_flags
 
 log = logging.getLogger(__name__)
 
@@ -65,10 +67,44 @@ def needs_wizard(conn: sqlite3.Connection) -> bool:
 # ---------------------------------------------------------------------------
 # HTML rendering
 # ---------------------------------------------------------------------------
+def _module_picker_html() -> str:
+    """Render the checkbox grid for the wizard's modules step."""
+    import importlib
+
+    rows: list[str] = []
+    for slug in feature_flags.ALL_MODULES:
+        try:
+            mod = importlib.import_module(f"hrkit.modules.{slug}")
+            md = getattr(mod, "MODULE", {}) or {}
+        except Exception:
+            md = {}
+        label = html.escape(md.get("label") or slug.title())
+        desc = html.escape(md.get("description") or "")
+        category = html.escape(md.get("category") or "hr")
+        locked = slug in feature_flags.ALWAYS_ON
+        checked = " checked"
+        disabled = " disabled" if locked else ""
+        lock_hint = (
+            '<span class="wm-lock" title="Always on — core">core</span>'
+            if locked else ""
+        )
+        rows.append(
+            f'<label class="wm-row" data-cat="{category}">'
+            f'<input type="checkbox" name="mod_{slug}" data-slug="{html.escape(slug)}"{checked}{disabled}>'
+            f'<div class="wm-meta">'
+            f'<div class="wm-head"><span class="wm-label">{label}</span>'
+            f'<span class="wm-cat wm-cat-{category}">{category}</span>{lock_hint}</div>'
+            f'<div class="wm-desc">{desc}</div>'
+            f'</div></label>'
+        )
+    return "".join(rows)
+
+
 def render_wizard_page(conn: sqlite3.Connection) -> str:
     """Return the full standalone HTML for the first-run wizard."""
     default_app_name = html.escape(branding.app_name() or "HR Desk")
     title = html.escape(branding.app_name() or "HR Desk")
+    modules_html = _module_picker_html()
     body = f"""<!doctype html>
 <html lang="en">
 <head>
@@ -79,9 +115,9 @@ def render_wizard_page(conn: sqlite3.Connection) -> str:
   *,*::before,*::after {{ box-sizing: border-box; }}
   body {{ margin: 0; font-family: 'Inter', system-ui, sans-serif;
          background: #08090a; color: #e8eaed; min-height: 100vh;
-         display: flex; align-items: center; justify-content: center; }}
+         display: flex; align-items: center; justify-content: center; padding: 24px; }}
   .card {{ background: #14171d; border: 1px solid rgba(255,255,255,0.08);
-           border-radius: 14px; padding: 32px 36px; width: 480px; max-width: 92vw;
+           border-radius: 14px; padding: 32px 36px; width: 920px; max-width: 96vw;
            box-shadow: 0 12px 40px rgba(0,0,0,0.5); }}
   h1 {{ margin: 0 0 6px; font-size: 22px; letter-spacing: -0.02em; }}
   .sub {{ color: #9aa0a6; font-size: 13px; margin-bottom: 18px; }}
@@ -110,17 +146,41 @@ def render_wizard_page(conn: sqlite3.Connection) -> str:
   .checkbox-row {{ display: flex; align-items: center; gap: 8px; margin-top: 14px;
                    color: #9aa0a6; font-size: 12px; }}
   .checkbox-row input {{ width: auto; margin: 0; }}
+  .wm-grid {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;
+              padding: 6px;
+              border: 1px solid rgba(255,255,255,0.05); border-radius: 8px;
+              background: #0b0d12; }}
+  @media (max-width: 880px) {{ .wm-grid {{ grid-template-columns: 1fr 1fr; }} }}
+  @media (max-width: 580px) {{ .wm-grid {{ grid-template-columns: 1fr; }} }}
+  .wm-row {{ display: flex; gap: 8px; align-items: flex-start; padding: 8px 10px;
+             border-radius: 6px; cursor: pointer; margin: 0;
+             background: rgba(255,255,255,0.02); border: 1px solid transparent; }}
+  .wm-row:hover {{ border-color: rgba(99,102,241,0.4); }}
+  .wm-row input {{ width: auto; margin-top: 3px; flex-shrink: 0; }}
+  .wm-meta {{ flex: 1; min-width: 0; }}
+  .wm-head {{ display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }}
+  .wm-label {{ font-weight: 600; color: #e8eaed; font-size: 13px; }}
+  .wm-cat {{ font-size: 9px; padding: 1px 5px; border-radius: 3px; text-transform: uppercase;
+             letter-spacing: 0.5px; background: rgba(255,255,255,0.08); color: #9aa0a6; }}
+  .wm-cat-core {{ background: rgba(99,102,241,0.2); color: #a5b4fc; }}
+  .wm-cat-hiring {{ background: rgba(245,158,11,0.2); color: #fcd34d; }}
+  .wm-lock {{ font-size: 9px; padding: 1px 5px; border-radius: 3px;
+              background: rgba(255,255,255,0.05); color: #6b7280; text-transform: uppercase; }}
+  .wm-desc {{ font-size: 11px; color: #6b7280; margin-top: 2px; line-height: 1.35; }}
+  .wm-quick {{ display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap; }}
+  .wm-quick button {{ padding: 4px 10px; font-size: 11px; }}
 </style>
 </head>
 <body>
 <div class="card">
   <h1>Welcome to {title}</h1>
-  <div class="sub">Four quick steps to set up your workspace.</div>
+  <div class="sub">Five quick steps to set up your workspace.</div>
   <div class="steps">
     <div class="dot active" id="dot-1"></div>
     <div class="dot" id="dot-2"></div>
     <div class="dot" id="dot-3"></div>
     <div class="dot" id="dot-4"></div>
+    <div class="dot" id="dot-5"></div>
   </div>
 
   <form class="step active" data-step="1">
@@ -149,6 +209,28 @@ def render_wizard_page(conn: sqlite3.Connection) -> str:
   </form>
 
   <form class="step" data-step="3">
+    <label style="margin-top:0">Choose your modules</label>
+    <div class="sub" style="margin-bottom:12px">
+      Pick what your HR team actually uses. Departments, Employees and Roles
+      are always on. You can change this later in <code>/settings</code>.
+    </div>
+    <div class="wm-quick">
+      <button type="button" data-preset="all">Everything</button>
+      <button type="button" data-preset="core">Core only</button>
+      <button type="button" data-preset="hiring">Recruitment-focused</button>
+      <button type="button" data-preset="hr">HR-focused</button>
+    </div>
+    <div class="wm-grid" id="wm-grid">
+      {modules_html}
+    </div>
+    <div class="actions">
+      <button type="button" class="skip" data-skip="3">Skip (enable all)</button>
+      <button type="submit" class="primary">Next</button>
+    </div>
+    <div class="err"></div>
+  </form>
+
+  <form class="step" data-step="4">
     <label>First department name</label>
     <input name="name" required placeholder="e.g. Engineering">
     <label>Code (optional)</label>
@@ -160,7 +242,7 @@ def render_wizard_page(conn: sqlite3.Connection) -> str:
     <div class="err"></div>
   </form>
 
-  <form class="step" data-step="4">
+  <form class="step" data-step="5">
     <div class="row">
       <div>
         <label>Employee code</label>
@@ -188,12 +270,15 @@ def render_wizard_page(conn: sqlite3.Connection) -> str:
 <script>
 let current = 1;
 let dept_id = null;
+const TOTAL_STEPS = 5;
 
 function showStep(n) {{
   document.querySelectorAll('.step').forEach(s => s.classList.remove('active'));
-  document.querySelector('.step[data-step="' + n + '"]').classList.add('active');
-  for (let i = 1; i <= 4; i++) {{
+  const target = document.querySelector('.step[data-step="' + n + '"]');
+  if (target) target.classList.add('active');
+  for (let i = 1; i <= TOTAL_STEPS; i++) {{
     const d = document.getElementById('dot-' + i);
+    if (!d) continue;
     d.classList.remove('active', 'done');
     if (i < n) d.classList.add('done');
     else if (i === n) d.classList.add('active');
@@ -201,13 +286,39 @@ function showStep(n) {{
   current = n;
 }}
 
+// Module preset buttons.
+document.querySelectorAll('.wm-quick button').forEach(btn => {{
+  btn.addEventListener('click', () => {{
+    const preset = btn.dataset.preset;
+    document.querySelectorAll('#wm-grid input[type=checkbox]').forEach(box => {{
+      if (box.disabled) return;  // always-on rows
+      const slug = box.dataset.slug;
+      const cat = box.closest('.wm-row').dataset.cat;
+      let on = true;
+      if (preset === 'core') on = false;
+      else if (preset === 'hiring') on = (cat === 'hiring');
+      else if (preset === 'hr') on = (cat !== 'hiring');
+      // 'all' leaves everything on.
+      box.checked = on;
+    }});
+  }});
+}});
+
 document.querySelectorAll('.step').forEach(form => {{
   form.addEventListener('submit', async (ev) => {{
     ev.preventDefault();
     const step = parseInt(form.dataset.step, 10);
     const fd = new FormData(form);
     const data = Object.fromEntries(fd.entries());
-    if (step === 4 && dept_id !== null) data.department_id = dept_id;
+    // Step 3 (modules): collect the checkbox grid into an array.
+    if (step === 3) {{
+      const enabled = [];
+      document.querySelectorAll('#wm-grid input[type=checkbox]').forEach(box => {{
+        if (box.checked) enabled.push(box.dataset.slug);
+      }});
+      data.enabled_modules = enabled;
+    }}
+    if (step === 5 && dept_id !== null) data.department_id = dept_id;
     const errEl = form.querySelector('.err');
     errEl.textContent = '';
     try {{
@@ -221,7 +332,7 @@ document.querySelectorAll('.step').forEach(form => {{
         errEl.textContent = body.error || ('Step ' + step + ' failed');
         return;
       }}
-      if (step === 3 && body.department_id) dept_id = body.department_id;
+      if (step === 4 && body.department_id) dept_id = body.department_id;
       if (body.next_step) showStep(body.next_step);
       else if (body.done) window.location.href = '/m/employee';
     }} catch (err) {{
@@ -283,6 +394,26 @@ def _step2(conn: sqlite3.Connection, data: dict[str, Any]) -> dict[str, Any]:
 
 
 def _step3(conn: sqlite3.Connection, data: dict[str, Any]) -> dict[str, Any]:
+    """Module enable/disable.
+
+    Skip → leave the default (all modules on). Otherwise persist the user's
+    selection via feature_flags.set_enabled_modules, which writes both
+    config.json and the DB mirror.
+    """
+    if data.get("skip"):
+        return {"next_step": 4}
+    raw = data.get("enabled_modules")
+    if not isinstance(raw, list):
+        # Empty or missing → fall back to all-on (same as skip).
+        return {"next_step": 4}
+    try:
+        feature_flags.set_enabled_modules(conn, raw)
+    except ValueError as exc:
+        raise ValueError(f"module selection: {exc}")
+    return {"next_step": 4}
+
+
+def _step4(conn: sqlite3.Connection, data: dict[str, Any]) -> dict[str, Any]:
     name = (data.get("name") or "").strip()
     if not name:
         raise ValueError("department name required")
@@ -292,10 +423,10 @@ def _step3(conn: sqlite3.Connection, data: dict[str, Any]) -> dict[str, Any]:
         (name, code),
     )
     conn.commit()
-    return {"next_step": 4, "department_id": int(cur.lastrowid)}
+    return {"next_step": 5, "department_id": int(cur.lastrowid)}
 
 
-def _step4(conn: sqlite3.Connection, data: dict[str, Any]) -> dict[str, Any]:
+def _step5(conn: sqlite3.Connection, data: dict[str, Any]) -> dict[str, Any]:
     code = (data.get("employee_code") or "").strip()
     full_name = (data.get("full_name") or "").strip()
     email = (data.get("email") or "").strip()
@@ -330,13 +461,13 @@ def _step4(conn: sqlite3.Connection, data: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
-_STEPS = {1: _step1, 2: _step2, 3: _step3, 4: _step4}
+_STEPS = {1: _step1, 2: _step2, 3: _step3, 4: _step4, 5: _step5}
 
 
 def handle_wizard_step(handler, body: dict[str, Any]) -> None:
     """POST /api/wizard — dispatch a single wizard step.
 
-    Body shape: ``{step: 1|2|3|4, data: {...}}``. Returns
+    Body shape: ``{step: 1|2|3|4|5, data: {...}}``. Returns
     ``{ok: True, next_step|done, ...}``.
     """
     if not isinstance(body, dict):

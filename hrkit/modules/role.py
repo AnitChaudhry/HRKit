@@ -19,6 +19,21 @@ ICON = "briefcase"
 
 LIST_COLUMNS = ("title", "department", "level")
 
+# Canonical HR ladder, low → high. Used as suggestions for the role.level
+# field. Stored as free text in the DB so legacy values (e.g. "IC2") still
+# round-trip; the UI presents this list as a datalist for new entries.
+HR_LEVELS: tuple[str, ...] = (
+    "Intern",
+    "Junior",
+    "Senior",
+    "Team Lead",
+    "Assistant Manager",
+    "Manager",
+    "Senior Manager",
+    "Director",
+    "VP",
+)
+
 
 # ---------------------------------------------------------------------------
 # DB
@@ -128,6 +143,7 @@ def _render_list_html(rows: list[dict[str, Any]],
     dept_opts = "".join(
         f'<option value="{d["id"]}">{_esc(d["label"])}</option>' for d in departments
     )
+    level_opts = "".join(f'<option value="{_esc(l)}">' for l in HR_LEVELS)
     return f"""
 <div class="module-toolbar">
   <h1>{LABEL}</h1>
@@ -138,11 +154,12 @@ def _render_list_html(rows: list[dict[str, Any]],
   <thead><tr>{head}<th></th></tr></thead>
   <tbody id="rows">{''.join(body_rows)}</tbody>
 </table>
+<datalist id="hr-levels">{level_opts}</datalist>
 <dialog id="create-dlg">
   <form onsubmit="submitCreate(event)">
-    <label>Title*<input name="title" required></label>
+    <label>Title*<input name="title" required placeholder="e.g. Senior Engineer"></label>
     <label>Department<select name="department_id"><option value="">--</option>{dept_opts}</select></label>
-    <label>Level<input name="level" placeholder="e.g. IC2"></label>
+    <label>HR Level<input name="level" list="hr-levels" placeholder="Pick or type..."></label>
     <label>Description<textarea name="description"></textarea></label>
     <menu>
       <button type="button" onclick="this.closest('dialog').close()">Cancel</button>
@@ -262,6 +279,7 @@ def detail_view(handler, item_id: int) -> None:
         item_id=int(item_id),
         api_path=f"/api/m/{NAME}",
         delete_redirect=f"/m/{NAME}",
+        field_options={"level": list(HR_LEVELS)},
     )
     handler._html(200, html)
 
@@ -347,6 +365,9 @@ MODULE = {
     "name": NAME,
     "label": LABEL,
     "icon": ICON,
+    "category": "core",
+    "requires": ["department"],
+    "description": "Job titles and HR levels (Team Lead, Manager, Director, ...) per department.",
     "ensure_schema": ensure_schema,
     "routes": ROUTES,
     "cli": CLI,
