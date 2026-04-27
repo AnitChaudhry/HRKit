@@ -1053,11 +1053,6 @@ dialog button:hover{background:var(--row-hover)}
 dialog button[type=submit]{background:var(--accent);border-color:var(--accent);
   color:var(--accent-fg)}
 dialog button[type=submit]:hover{filter:brightness(1.05);background:var(--accent)}
-.dialog-close{position:absolute;top:12px;right:14px;width:30px;height:30px;
-  display:flex;align-items:center;justify-content:center;border-radius:6px;
-  border:1px solid transparent;background:transparent;color:var(--dim);
-  cursor:pointer;font-size:18px;line-height:1;padding:0}
-.dialog-close:hover{color:var(--text);background:var(--row-hover);border-color:var(--border)}
 
 .empty{padding:40px;text-align:center;color:var(--dim);font-style:italic;
   background:var(--panel);border:1px dashed var(--border);border-radius:10px}
@@ -1838,44 +1833,6 @@ def render_module_page(*, title: str, nav_active: str, body_html: str) -> str:
       setTheme(current() === 'dark' ? 'light' : 'dark');
     }});
   }})();
-</script>
-<script>
-// Auto-augment every <dialog> on the page with a × close button, click-outside-
-// to-close, and an Esc-to-close shortcut. Native <dialog> already supports Esc
-// when shown via showModal(); this script makes sure the close UX is consistent
-// across the 16+ dialogs in the app without requiring each template to opt in.
-(function() {{
-  function augment(dlg) {{
-    if (dlg.dataset.closeReady) return;
-    dlg.dataset.closeReady = '1';
-    if (!dlg.querySelector('.dialog-close')) {{
-      var btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'dialog-close';
-      btn.setAttribute('aria-label', 'Close');
-      btn.title = 'Close (Esc)';
-      btn.textContent = '×';
-      btn.addEventListener('click', function() {{ dlg.close(); }});
-      dlg.insertBefore(btn, dlg.firstChild);
-    }}
-    // Click on the backdrop (outside the dialog content) closes it.
-    dlg.addEventListener('click', function(ev) {{
-      if (ev.target === dlg) dlg.close();
-    }});
-  }}
-  function scan() {{
-    document.querySelectorAll('dialog').forEach(augment);
-  }}
-  if (document.readyState === 'loading') {{
-    document.addEventListener('DOMContentLoaded', scan);
-  }} else {{
-    scan();
-  }}
-  // Re-scan if dialogs are injected after page load (e.g. by render_detail_page's
-  // edit dialog that gets stamped into the DOM by template helpers).
-  var mo = new MutationObserver(scan);
-  mo.observe(document.body, {{childList: true, subtree: true}});
-}})();
 </script>
 </body>
 </html>"""
