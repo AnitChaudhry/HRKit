@@ -125,6 +125,8 @@ def render_settings_page(conn) -> str:
     model = branding.ai_model(conn) or ""
     ai_key = branding.ai_api_key(conn) or ""
     composio_key = branding.composio_api_key(conn) or ""
+    ai_local_only = branding.ai_local_only(conn)
+    ai_local_only_checked = " checked" if ai_local_only else ""
 
     ai_key_masked = branding.masked(ai_key) if ai_key else ""
     composio_key_masked = branding.masked(composio_key) if composio_key else ""
@@ -161,41 +163,69 @@ def render_settings_page(conn) -> str:
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Settings &middot; {title_esc}</title>
+<script>
+  (function() {{
+    try {{
+      var t = localStorage.getItem('hrkit-theme');
+      if (t === 'dark' || t === 'light') document.documentElement.setAttribute('data-theme', t);
+    }} catch (e) {{}}
+  }})();
+</script>
 <style>
   :root {{
-    --bg: #f7f8fa; --fg: #1f2330; --muted: #6b7280; --border: #d8dde5;
-    --card: #ffffff; --accent: #2563eb; --accent-hover: #1d4ed8;
-    --ok: #15803d; --err: #b91c1c;
+    --bg:#f5f6f8; --panel:#ffffff; --panel-alt:#fafbfc;
+    --border:#e5e7eb; --border-soft:#eef0f3;
+    --text:#1f2937; --dim:#6b7280; --mute:#9ca3af;
+    --accent:#ef4444; --accent-soft:rgba(239,68,68,0.10); --accent-fg:#ffffff;
+    --ok:#10b981; --err:#dc2626;
+    --shadow-sm:0 1px 2px rgba(15,23,42,0.04),0 1px 3px rgba(15,23,42,0.06);
+    --row-hover:rgba(15,23,42,0.03);
+  }}
+  [data-theme="dark"] {{
+    --bg:#0b0d12; --panel:#11141b; --panel-alt:#0e1117;
+    --border:rgba(255,255,255,0.08); --border-soft:rgba(255,255,255,0.05);
+    --text:#e8eaed; --dim:#9aa0a6; --mute:#6b7280;
+    --accent:#ef4444; --accent-soft:rgba(239,68,68,0.18); --accent-fg:#ffffff;
+    --ok:#34d399; --err:#fca5a5;
+    --shadow-sm:0 1px 2px rgba(0,0,0,0.4);
+    --row-hover:rgba(255,255,255,0.04);
   }}
   * {{ box-sizing: border-box; }}
   body {{
-    margin: 0; padding: 24px; background: var(--bg); color: var(--fg);
-    font: 14px/1.5 -apple-system, "Segoe UI", Roboto, sans-serif;
+    margin: 0; padding: 28px; background: var(--bg); color: var(--text);
+    font: 14px/1.5 'Inter', -apple-system, "Segoe UI", Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
   }}
   .wrap {{ max-width: 1000px; margin: 0 auto; }}
-  h1 {{ font-size: 22px; margin: 0 0 4px; }}
-  .sub {{ color: var(--muted); margin: 0 0 20px; }}
+  h1 {{ font-size: 24px; margin: 0 0 4px; font-weight: 700; letter-spacing: -0.015em; }}
+  .sub {{ color: var(--dim); margin: 0 0 22px; font-size: 13.5px; }}
   .card {{
-    background: var(--card); border: 1px solid var(--border);
-    border-radius: 8px; padding: 20px; margin-bottom: 16px;
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 12px; padding: 22px 24px; margin-bottom: 16px;
+    box-shadow: var(--shadow-sm);
   }}
-  .card h2 {{ font-size: 16px; margin: 0 0 14px; }}
+  .card h2 {{ font-size: 16px; margin: 0 0 14px; font-weight: 600; }}
   .field {{ margin-bottom: 14px; }}
-  label {{ display: block; font-weight: 600; margin-bottom: 4px; }}
+  label {{ display: block; font-weight: 500; margin-bottom: 4px; color: var(--text); }}
   input[type=text], input[type=password], select {{
-    width: 100%; padding: 8px 10px; font: inherit;
-    border: 1px solid var(--border); border-radius: 6px; background: #fff;
+    width: 100%; padding: 8px 11px; font: inherit; color: var(--text);
+    border: 1px solid var(--border); border-radius: 6px; background: var(--panel-alt);
   }}
-  input:focus, select:focus {{ outline: 2px solid var(--accent); outline-offset: -1px; }}
-  .hint {{ font-size: 12px; color: var(--muted); margin-top: 4px; }}
-  code {{ background: #eef1f6; padding: 1px 5px; border-radius: 3px; font-size: 12px; }}
+  input:focus, select:focus {{ outline: none; border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-soft); }}
+  .hint {{ font-size: 12px; color: var(--dim); margin-top: 4px; }}
+  code {{ background: var(--row-hover); padding: 1px 6px; border-radius: 4px;
+    font-size: 12px; color: var(--text); }}
   .row {{ display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }}
   button {{
     padding: 8px 14px; border: 1px solid var(--border); border-radius: 6px;
-    background: #fff; font: inherit; cursor: pointer;
+    background: var(--panel); color: var(--text); font: inherit; cursor: pointer;
+    font-weight: 500;
   }}
-  button.primary {{ background: var(--accent); color: #fff; border-color: var(--accent); }}
-  button.primary:hover {{ background: var(--accent-hover); }}
+  button:hover {{ background: var(--row-hover); border-color: var(--dim); }}
+  button.primary {{ background: var(--accent); color: var(--accent-fg);
+    border-color: var(--accent); font-weight: 600; box-shadow: var(--shadow-sm); }}
+  button.primary:hover {{ filter: brightness(1.05); background: var(--accent); }}
   button:disabled {{ opacity: 0.6; cursor: progress; }}
   .status {{ margin-top: 8px; font-size: 13px; min-height: 18px; }}
   .status.ok {{ color: var(--ok); }}
@@ -204,28 +234,32 @@ def render_settings_page(conn) -> str:
   @media (min-width: 640px) {{ .mod-grid {{ grid-template-columns: 1fr 1fr; }} }}
   @media (min-width: 960px) {{ .mod-grid {{ grid-template-columns: 1fr 1fr 1fr; }} }}
   .mod-row {{
-    display: flex; gap: 10px; padding: 10px 12px; border: 1px solid var(--border);
-    border-radius: 6px; cursor: pointer; align-items: flex-start; background: #fff;
+    display: flex; gap: 10px; padding: 11px 12px; border: 1px solid var(--border);
+    border-radius: 8px; cursor: pointer; align-items: flex-start;
+    background: var(--panel); transition: border-color .15s ease;
   }}
   .mod-row:hover {{ border-color: var(--accent); }}
-  .mod-row input[type=checkbox] {{ margin-top: 3px; flex-shrink: 0; }}
+  .mod-row input[type=checkbox] {{ margin-top: 3px; flex-shrink: 0; accent-color: var(--accent); }}
   .mod-row input[type=checkbox]:disabled + .mod-meta {{ opacity: 0.7; }}
   .mod-meta {{ flex: 1; min-width: 0; }}
   .mod-head {{ display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }}
-  .mod-label {{ font-weight: 600; }}
+  .mod-label {{ font-weight: 600; color: var(--text); }}
   .mod-cat {{
-    font-size: 10px; padding: 2px 6px; border-radius: 3px; text-transform: uppercase;
-    letter-spacing: 0.5px; background: #eef1f6; color: #4b5563;
+    font-size: 10px; padding: 2px 8px; border-radius: 999px; text-transform: uppercase;
+    letter-spacing: 0.6px; font-weight: 600;
+    background: var(--row-hover); color: var(--dim);
   }}
-  .mod-cat-core {{ background: #dbeafe; color: #1e40af; }}
-  .mod-cat-hiring {{ background: #fef3c7; color: #92400e; }}
-  .mod-lock {{ font-size: 10px; color: var(--muted); padding: 2px 6px;
-              border-radius: 3px; background: #f3f4f6; text-transform: uppercase; }}
-  .mod-desc {{ font-size: 12px; color: var(--muted); margin-top: 3px; }}
-  .mod-req {{ font-size: 11px; color: var(--muted); margin-top: 4px; font-style: italic; }}
+  .mod-cat-core {{ background: var(--accent-soft); color: var(--accent); }}
+  .mod-cat-hiring {{ background: rgba(245,158,11,0.14); color: #b45309; }}
+  [data-theme="dark"] .mod-cat-hiring {{ color: #fcd34d; }}
+  .mod-lock {{ font-size: 10px; color: var(--mute); padding: 2px 8px;
+              border-radius: 999px; background: var(--row-hover); text-transform: uppercase;
+              letter-spacing: 0.6px; font-weight: 600; }}
+  .mod-desc {{ font-size: 12px; color: var(--dim); margin-top: 4px; line-height: 1.5; }}
+  .mod-req {{ font-size: 11px; color: var(--mute); margin-top: 4px; font-style: italic; }}
   @media (max-width: 520px) {{
-    body {{ padding: 12px; }}
-    .card {{ padding: 14px; }}
+    body {{ padding: 14px; }}
+    .card {{ padding: 16px; }}
   }}
 </style>
 </head>
@@ -276,6 +310,25 @@ def render_settings_page(conn) -> str:
         <button type="button" id="test-ai">Test AI connection</button>
       </div>
       <div class="status" id="status-ai"></div>
+    </div>
+
+    <div class="card">
+      <h2>AI sandbox</h2>
+      <div class="field">
+        <label style="font-weight:600;display:flex;gap:8px;align-items:center;cursor:pointer">
+          <input type="checkbox" id="ai_local_only" name="ai_local_only"
+                 value="1"{ai_local_only_checked} style="width:auto">
+          <span>Restrict the AI agent to local data only</span>
+        </label>
+        <div class="hint">
+          When ON (default + recommended), the AI cannot reach the internet
+          or any external service. It only sees this workspace's SQLite
+          database, imported CSV tables, and local employee files. Turn
+          this OFF only if you want to grant the agent <code>web_search</code>
+          / <code>web_fetch</code> tools — note that doing so means the
+          model provider will receive HR context in its prompts.
+        </div>
+      </div>
     </div>
 
     <div class="card">
@@ -339,6 +392,12 @@ def render_settings_page(conn) -> str:
     const ck = document.getElementById("composio_api_key").value;
     if (ak) data.ai_api_key = ak;
     if (ck) data.composio_api_key = ck;
+    // The local-only checkbox is only included in the form's natural payload
+    // when ticked, so we have to read it explicitly + send the explicit flag
+    // so the server knows to persist OFF as well as ON.
+    const lo = document.getElementById("ai_local_only");
+    data.ai_local_only = lo && lo.checked ? "1" : "0";
+    data.ai_local_only_explicit = "1";
     return data;
   }}
 
@@ -581,6 +640,13 @@ def handle_save_settings(handler, body: dict) -> None:
         key = str(body.get("composio_api_key") or "")
         if key.strip():
             updates["composio_api_key"] = key.strip()
+
+    # AI sandbox toggle — checkbox 'ai_local_only' is only sent when ticked,
+    # so absence means OFF. Always persist (unlike the secret-key fields).
+    if "ai_local_only" in body or body.get("ai_local_only_explicit"):
+        raw = body.get("ai_local_only")
+        truthy = str(raw).strip().lower() in ("1", "true", "on", "yes") if raw else False
+        updates["ai_local_only"] = "1" if truthy else "0"
 
     if errors:
         handler._json({"ok": False, "error": "; ".join(errors)}, 400)

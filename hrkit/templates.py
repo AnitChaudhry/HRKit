@@ -1061,6 +1061,74 @@ dialog button[type=submit]:hover{filter:brightness(1.05);background:var(--accent
 
 .empty{padding:40px;text-align:center;color:var(--dim);font-style:italic;
   background:var(--panel);border:1px dashed var(--border);border-radius:10px}
+
+/* ---- Horilla archetypes: stat grid, kanban, heatmap, charts ---- */
+.stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));
+  gap:14px;margin-bottom:22px}
+.stat-tile{padding:18px 20px;border:1px solid var(--border);border-radius:12px;
+  background:var(--panel);box-shadow:var(--shadow-sm);
+  display:flex;flex-direction:column;gap:6px;text-decoration:none;color:inherit;
+  transition:box-shadow .15s ease,border-color .15s ease}
+.stat-tile:hover{border-color:var(--accent);box-shadow:var(--shadow-md)}
+.stat-tile-label{font-size:11.5px;color:var(--dim);text-transform:uppercase;
+  letter-spacing:0.6px;font-weight:600}
+.stat-tile-value{font-size:28px;font-weight:700;letter-spacing:-0.02em;color:var(--text)}
+.stat-tile-delta{font-size:12px;color:var(--green);font-weight:500}
+.stat-tile-delta.neg{color:var(--red)}
+.stat-tile-icon{width:36px;height:36px;border-radius:8px;background:var(--accent-soft);
+  color:var(--accent);display:inline-flex;align-items:center;justify-content:center;
+  font-size:16px;font-weight:700;margin-bottom:4px}
+
+.kanban{display:flex;gap:14px;overflow-x:auto;padding:4px 2px 14px;min-height:400px}
+.kanban-col{flex:0 0 280px;background:var(--panel-alt);border:1px solid var(--border);
+  border-radius:10px;display:flex;flex-direction:column;max-height:78vh}
+.kanban-col-head{padding:12px 14px;border-bottom:1px solid var(--border-soft);
+  display:flex;align-items:center;gap:8px;font-weight:600;font-size:13px}
+.kanban-col-head .col-count{margin-left:auto;font-size:11px;color:var(--dim);
+  background:var(--row-hover);padding:2px 8px;border-radius:999px;font-weight:600}
+.kanban-col-body{flex:1;overflow-y:auto;padding:10px 10px 14px;
+  display:flex;flex-direction:column;gap:8px}
+.kanban-card{background:var(--panel);border:1px solid var(--border);
+  border-radius:8px;padding:12px 14px;font-size:13px;
+  box-shadow:var(--shadow-sm);text-decoration:none;color:inherit;display:block;
+  transition:transform .12s ease,box-shadow .12s ease,border-color .12s ease}
+.kanban-card:hover{transform:translateY(-1px);box-shadow:var(--shadow-md);
+  border-color:var(--accent)}
+.kanban-card-title{font-weight:600;color:var(--text);margin-bottom:4px;
+  font-size:13.5px;letter-spacing:-0.005em}
+.kanban-card-sub{font-size:11.5px;color:var(--dim);line-height:1.45}
+.kanban-card-tags{display:flex;flex-wrap:wrap;gap:4px;margin-top:8px}
+.kanban-empty{padding:24px 12px;text-align:center;color:var(--mute);
+  font-size:12px;font-style:italic}
+
+.heatmap-wrap{overflow-x:auto;background:var(--panel);border:1px solid var(--border);
+  border-radius:12px;padding:18px;box-shadow:var(--shadow-sm)}
+.heatmap-table{border-collapse:separate;border-spacing:3px;font-size:11px}
+.heatmap-table th{font-weight:500;color:var(--dim);font-size:10.5px;text-align:left;
+  padding:0 8px 4px 0;text-transform:uppercase;letter-spacing:0.5px}
+.heatmap-table th.col{padding:0 0 4px;text-align:center;min-width:14px}
+.heatmap-table td{width:14px;height:14px;border-radius:3px;background:var(--row-hover)}
+.heatmap-table td.row-label{background:transparent;padding:0 8px 0 0;
+  font-size:11.5px;color:var(--text);font-weight:500;width:auto;height:auto}
+.heatmap-table td.lvl1{background:rgba(239,68,68,0.15)}
+.heatmap-table td.lvl2{background:rgba(239,68,68,0.32)}
+.heatmap-table td.lvl3{background:rgba(239,68,68,0.55)}
+.heatmap-table td.lvl4{background:rgba(239,68,68,0.78)}
+.heatmap-table td.lvl5{background:var(--accent)}
+.heatmap-legend{display:flex;align-items:center;gap:6px;margin-top:10px;
+  font-size:11px;color:var(--dim)}
+.heatmap-legend .swatch{width:11px;height:11px;border-radius:2px;display:inline-block}
+
+.chart-card{background:var(--panel);border:1px solid var(--border);border-radius:12px;
+  padding:18px 20px;box-shadow:var(--shadow-sm)}
+.chart-card-head{display:flex;justify-content:space-between;align-items:baseline;
+  margin-bottom:14px}
+.chart-card-title{font-size:13px;font-weight:600;color:var(--text)}
+.chart-card-meta{font-size:11.5px;color:var(--dim)}
+.chart-svg{width:100%;height:auto;display:block}
+.chart-legend{display:flex;flex-wrap:wrap;gap:10px;margin-top:12px;font-size:11.5px}
+.chart-legend-item{display:flex;align-items:center;gap:6px;color:var(--dim)}
+.chart-legend-item .dot{width:10px;height:10px;border-radius:2px;display:inline-block}
 """
 
 
@@ -1354,6 +1422,29 @@ def render_activity_page(activity: list[dict]) -> str:
     return render_module_page(title="Activity", nav_active="", body_html=body)
 
 
+_NON_EXPORTABLE_NAV = frozenset({
+    "csv_import", "csv_export", "audit_log", "approval", "f_and_f",
+})
+
+
+def _export_csv_button(nav_active: str, enabled: set[str]) -> str:
+    """Render an "Export CSV" link in the topbar of any module page that's
+    backed by a regular ``list_rows`` table. Skipped for utility / read-only
+    modules where the export wouldn't make sense (csv_import / audit_log /
+    approval / f_and_f), and for modules the workspace has disabled."""
+    if (nav_active in _NON_EXPORTABLE_NAV
+            or "csv_export" not in enabled
+            or nav_active not in enabled):
+        return ""
+    return (
+        f'<a class="ghost" href="/api/m/csv_export/{nav_active}.csv" '
+        f'title="Download this module\'s data as CSV" '
+        f'style="padding:6px 12px;border:1px solid var(--border);'
+        f'border-radius:6px;color:var(--dim);text-decoration:none;'
+        f'font-size:12px">Export CSV</a>'
+    )
+
+
 def render_module_page(*, title: str, nav_active: str, body_html: str) -> str:
     """Return the full HTML for an HR module page.
 
@@ -1401,6 +1492,7 @@ def render_module_page(*, title: str, nav_active: str, body_html: str) -> str:
     <div class="app-topbar-title">{_e(title)}</div>
     <div class="app-topbar-actions">
       {board_link}
+      {_export_csv_button(nav_active, enabled)}
       <button type="button" class="theme-toggle" id="hrkit-theme-toggle"
               aria-label="Toggle theme" title="Toggle light/dark">o</button>
     </div>
@@ -1642,4 +1734,334 @@ def detail_section(*, title: str, body_html: str) -> str:
         f'<div class="detail-section">'
         f'<div class="sec-head">{_e(title)}</div>'
         f'<div class="sec-body">{body_html}</div></div>'
+    )
+
+
+# =============================================================================
+# Horilla-style page archetypes (Phase 4b)
+# =============================================================================
+# Reusable Python helpers that emit horilla-equivalent visual primitives:
+# stat-tile grid (dashboard), kanban board (recruitment / helpdesk),
+# calendar heatmap (attendance), and inline-SVG donut + bar charts.
+#
+# All helpers return self-contained HTML using the classes defined in
+# MODULE_CSS, so they Just Work on any module page that goes through
+# render_module_page. No external chart library, no build step.
+
+def render_stat_grid(stats):
+    """Render a grid of stat tiles. ``stats`` is a list of dicts with keys
+    ``label``, ``value``, optional ``href`` / ``icon`` / ``delta`` /
+    ``delta_dir`` ('up' or 'down')."""
+    if not stats:
+        return ""
+    tiles: list[str] = []
+    for s in stats:
+        label = _e(s.get("label") or "")
+        value = _e(str(s.get("value") if s.get("value") is not None else "0"))
+        href = s.get("href") or ""
+        icon = s.get("icon") or ""
+        delta = s.get("delta") or ""
+        ddir = (s.get("delta_dir") or "").lower()
+        delta_cls = " neg" if ddir == "down" else ""
+        delta_html = (
+            f'<div class="stat-tile-delta{delta_cls}">{_e(delta)}</div>'
+            if delta else ""
+        )
+        icon_html = (
+            f'<div class="stat-tile-icon">{_e(icon)}</div>' if icon else ""
+        )
+        tag = "a" if href else "div"
+        attr = f' href="{_e(href)}"' if href else ""
+        tiles.append(
+            f'<{tag} class="stat-tile"{attr}>'
+            f'{icon_html}'
+            f'<div class="stat-tile-label">{label}</div>'
+            f'<div class="stat-tile-value">{value}</div>'
+            f'{delta_html}'
+            f'</{tag}>'
+        )
+    return f'<div class="stat-grid">{"".join(tiles)}</div>'
+
+
+def render_kanban_board(*, columns, items, get_column,
+                        render_card=None, get_id=None):
+    """Render a horizontal kanban with one column per ``columns`` entry.
+
+    Args:
+      columns: list of (slug, label) tuples — column order, left to right.
+      items: iterable of dicts (or any object the callbacks accept).
+      get_column: callable(item) -> column slug. Items whose slug isn't in
+        ``columns`` go into a synthetic 'Other' column at the right.
+      render_card: callable(item) -> HTML for the card body. Defaults to a
+        simple title/subtitle layout reading item['title'] / item['subtitle'].
+      get_id: callable(item) -> stable id for the card data attribute.
+    """
+    cols_by_slug: dict[str, list] = {slug: [] for slug, _label in columns}
+    other: list = []
+    for it in items:
+        slug = get_column(it)
+        if slug in cols_by_slug:
+            cols_by_slug[slug].append(it)
+        else:
+            other.append(it)
+
+    def _default_card(it):
+        title = _e(str(it.get("title", "")))
+        sub = _e(str(it.get("subtitle", "")))
+        sub_html = f'<div class="kanban-card-sub">{sub}</div>' if sub else ""
+        return f'<div class="kanban-card-title">{title}</div>{sub_html}'
+
+    rc = render_card or _default_card
+
+    def _render_col(slug, label, bucket):
+        if not bucket:
+            cards = '<div class="kanban-empty">- empty -</div>'
+        else:
+            parts: list[str] = []
+            for it in bucket:
+                cid = get_id(it) if get_id else ""
+                attrs = (f' data-id="{_e(str(cid))}" data-col="{_e(slug)}"'
+                         if cid else f' data-col="{_e(slug)}"')
+                parts.append(
+                    f'<div class="kanban-card"{attrs}>{rc(it)}</div>'
+                )
+            cards = "".join(parts)
+        return (
+            f'<div class="kanban-col" data-col="{_e(slug)}">'
+            f'<div class="kanban-col-head">{_e(label)}'
+            f'<span class="col-count">{len(bucket)}</span></div>'
+            f'<div class="kanban-col-body">{cards}</div>'
+            f'</div>'
+        )
+
+    parts = [_render_col(slug, label, cols_by_slug[slug])
+             for slug, label in columns]
+    if other:
+        parts.append(_render_col("__other__", "Other", other))
+    return f'<div class="kanban">{"".join(parts)}</div>'
+
+
+def render_heatmap(*, row_labels, col_labels, values, max_value=None,
+                   row_label_header="", legend_label="activity"):
+    """Render an N x M heatmap (e.g. employees x days for attendance).
+
+    Args:
+      row_labels: list of N strings (row headers).
+      col_labels: list of M strings (column headers, e.g. day numbers).
+      values: 2D iterable [N][M] of numbers.
+      max_value: clamp ceiling. None -> use observed max.
+      row_label_header: text for the top-left corner cell.
+      legend_label: noun for cell tooltips ('hours', 'present', etc.).
+    """
+    rows = list(row_labels or [])
+    cols = list(col_labels or [])
+    grid = [list(r or []) for r in (values or [])]
+    flat = [v for r in grid for v in r if isinstance(v, (int, float))]
+    observed_max = max(flat) if flat else 0
+    ceiling = max_value if max_value is not None else observed_max
+    if ceiling <= 0:
+        ceiling = 1
+
+    def _level(v):
+        if not isinstance(v, (int, float)) or v <= 0:
+            return 0
+        ratio = min(1.0, v / float(ceiling))
+        if ratio < 0.25:
+            return 1
+        if ratio < 0.5:
+            return 2
+        if ratio < 0.75:
+            return 3
+        if ratio < 1.0:
+            return 4
+        return 5
+
+    head_cells = "".join(
+        f'<th class="col">{_e(str(c))}</th>' for c in cols
+    )
+    body_rows: list[str] = []
+    for i, label in enumerate(rows):
+        row_vals = grid[i] if i < len(grid) else []
+        cells: list[str] = []
+        for j, _c in enumerate(cols):
+            v = row_vals[j] if j < len(row_vals) else 0
+            lvl = _level(v)
+            cls = f"lvl{lvl}" if lvl > 0 else ""
+            tip = (f'{label}: {v} {legend_label}'
+                   if isinstance(v, (int, float)) else str(label))
+            cells.append(f'<td class="{cls}" title="{_e(tip)}"></td>')
+        body_rows.append(
+            f'<tr><td class="row-label">{_e(str(label))}</td>'
+            f'{"".join(cells)}</tr>'
+        )
+
+    legend = (
+        '<div class="heatmap-legend">'
+        '<span>Less</span>'
+        '<span class="swatch" style="background:var(--row-hover)"></span>'
+        '<span class="swatch" style="background:rgba(239,68,68,0.15)"></span>'
+        '<span class="swatch" style="background:rgba(239,68,68,0.32)"></span>'
+        '<span class="swatch" style="background:rgba(239,68,68,0.55)"></span>'
+        '<span class="swatch" style="background:rgba(239,68,68,0.78)"></span>'
+        '<span class="swatch" style="background:var(--accent)"></span>'
+        '<span>More</span>'
+        '</div>'
+    )
+
+    return (
+        '<div class="heatmap-wrap">'
+        '<table class="heatmap-table">'
+        f'<thead><tr><th>{_e(row_label_header)}</th>{head_cells}</tr></thead>'
+        f'<tbody>{"".join(body_rows)}</tbody>'
+        '</table>'
+        f'{legend}'
+        '</div>'
+    )
+
+
+def render_donut_svg(slices, *, size=160, thickness=22, title="", center_label=""):
+    """Render a donut chart as inline SVG. ``slices`` is a list of dicts::
+
+        {"label": str, "value": float, "color": str (optional)}
+    """
+    import math as _math
+    slices = [s for s in (slices or []) if (s.get("value") or 0) > 0]
+    total = sum(float(s["value"]) for s in slices)
+    palette = ["var(--accent)", "#10b981", "#f59e0b", "#3b82f6", "#a855f7",
+               "#06b6d4", "#ec4899", "#84cc16"]
+    radius = size / 2
+    inner = radius - thickness
+    cx = cy = radius
+
+    if total <= 0:
+        body = (
+            f'<svg class="chart-svg" viewBox="0 0 {size} {size}" '
+            f'style="max-width:{size}px;margin:0 auto">'
+            f'<circle cx="{cx}" cy="{cy}" r="{inner + thickness/2:.2f}" '
+            f'fill="none" stroke="var(--row-hover)" stroke-width="{thickness}"/>'
+            f'</svg>'
+            '<div class="chart-card-meta" style="text-align:center;margin-top:6px">'
+            'No data yet</div>'
+        )
+    else:
+        offset = -_math.pi / 2  # start at 12 o'clock
+        paths: list[str] = []
+        legend_items: list[str] = []
+        for i, s in enumerate(slices):
+            value = float(s["value"])
+            color = s.get("color") or palette[i % len(palette)]
+            angle = (value / total) * 2 * _math.pi
+            end = offset + angle
+            r_mid = inner + thickness / 2
+            x1 = cx + r_mid * _math.cos(offset)
+            y1 = cy + r_mid * _math.sin(offset)
+            x2 = cx + r_mid * _math.cos(end)
+            y2 = cy + r_mid * _math.sin(end)
+            large_arc = 1 if angle > _math.pi else 0
+            d = (f'M {x1:.2f} {y1:.2f} '
+                 f'A {r_mid:.2f} {r_mid:.2f} 0 '
+                 f'{large_arc} 1 {x2:.2f} {y2:.2f}')
+            paths.append(
+                f'<path d="{d}" fill="none" stroke="{color}" '
+                f'stroke-width="{thickness}" stroke-linecap="butt"/>'
+            )
+            pct = (value / total) * 100
+            legend_items.append(
+                f'<span class="chart-legend-item">'
+                f'<span class="dot" style="background:{color}"></span>'
+                f'{_e(s.get("label") or "")} '
+                f'<strong style="color:var(--text)">{pct:.0f}%</strong>'
+                f'</span>'
+            )
+            offset = end
+        center = (
+            f'<text x="{cx}" y="{cy - 3}" text-anchor="middle" '
+            f'style="font:600 18px Inter,sans-serif;fill:var(--text)">{int(total)}</text>'
+            f'<text x="{cx}" y="{cy + 14}" text-anchor="middle" '
+            f'style="font:11px Inter,sans-serif;fill:var(--dim);'
+            f'text-transform:uppercase;letter-spacing:0.5px">{_e(center_label)}</text>'
+            if center_label else
+            f'<text x="{cx}" y="{cy + 5}" text-anchor="middle" '
+            f'style="font:600 20px Inter,sans-serif;fill:var(--text)">{int(total)}</text>'
+        )
+        body = (
+            f'<svg class="chart-svg" viewBox="0 0 {size} {size}" '
+            f'style="max-width:{size}px;margin:0 auto">'
+            f'{"".join(paths)}'
+            f'{center}'
+            f'</svg>'
+            f'<div class="chart-legend">{"".join(legend_items)}</div>'
+        )
+
+    head = (
+        f'<div class="chart-card-head">'
+        f'<span class="chart-card-title">{_e(title)}</span></div>'
+        if title else ""
+    )
+    return f'<div class="chart-card">{head}{body}</div>'
+
+
+def render_bar_svg(bars, *, height=160, title="", y_label=""):
+    """Render a vertical bar chart as inline SVG. ``bars`` is a list of dicts::
+
+        {"label": str, "value": float, "color": str (optional)}
+    """
+    bars = list(bars or [])
+    if not bars:
+        return (
+            '<div class="chart-card">'
+            f'<div class="chart-card-head">'
+            f'<span class="chart-card-title">{_e(title)}</span></div>'
+            '<div class="chart-card-meta" style="text-align:center;padding:30px 0">'
+            'No data yet</div></div>'
+        )
+    max_v = max(float(b.get("value") or 0) for b in bars) or 1.0
+    bar_w = 28
+    gap = 14
+    pad_l, pad_r, pad_t, pad_b = 36, 16, 12, 30
+    w = pad_l + len(bars) * (bar_w + gap) - gap + pad_r
+    h = height + pad_t + pad_b
+
+    rects: list[str] = []
+    labels: list[str] = []
+    palette = ["var(--accent)", "#10b981", "#f59e0b", "#3b82f6", "#a855f7"]
+    grid: list[str] = []
+    for frac, txt in ((0.0, "0"), (0.5, f"{int(max_v / 2)}"), (1.0, f"{int(max_v)}")):
+        y = pad_t + height - (frac * height)
+        grid.append(
+            f'<line x1="{pad_l}" y1="{y:.1f}" x2="{w - pad_r}" y2="{y:.1f}" '
+            f'stroke="var(--border-soft)" stroke-width="1"/>'
+            f'<text x="{pad_l - 6}" y="{y + 3:.1f}" text-anchor="end" '
+            f'style="font:10px Inter,sans-serif;fill:var(--mute)">{_e(txt)}</text>'
+        )
+    for i, b in enumerate(bars):
+        v = float(b.get("value") or 0)
+        bh = (v / max_v) * height
+        x = pad_l + i * (bar_w + gap)
+        y = pad_t + height - bh
+        color = b.get("color") or palette[i % len(palette)]
+        rects.append(
+            f'<rect x="{x}" y="{y:.1f}" width="{bar_w}" height="{bh:.1f}" '
+            f'rx="4" fill="{color}">'
+            f'<title>{_e(str(b.get("label") or ""))}: {v:g}</title></rect>'
+        )
+        labels.append(
+            f'<text x="{x + bar_w / 2}" y="{pad_t + height + 18}" '
+            f'text-anchor="middle" style="font:11px Inter,sans-serif;fill:var(--dim)">'
+            f'{_e(str(b.get("label") or ""))}</text>'
+        )
+
+    head = (
+        f'<div class="chart-card-head">'
+        f'<span class="chart-card-title">{_e(title)}</span>'
+        f'<span class="chart-card-meta">{_e(y_label)}</span></div>'
+    )
+    return (
+        '<div class="chart-card">'
+        f'{head}'
+        f'<svg class="chart-svg" viewBox="0 0 {w} {h}" '
+        f'preserveAspectRatio="xMidYMid meet">'
+        f'{"".join(grid)}{"".join(rects)}{"".join(labels)}'
+        '</svg>'
+        '</div>'
     )
