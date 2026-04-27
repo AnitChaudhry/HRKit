@@ -314,37 +314,47 @@ def render_settings_page(conn) -> str:
 
     <div class="card">
       <h2>AI sandbox</h2>
-      <div class="field">
+      <div class="hint" style="margin-bottom:12px">
+        The AI agent runs as a <strong>full-capability sandboxed agent</strong>.
+        "Sandbox" here means scope, not feature restriction — the agent
+        gets every tool below, but every file path resolves against this
+        workspace folder and only loopback HTTP (the app talking to its
+        own API) is privileged.
+      </div>
+      <div class="hint">
+        <strong>Default tool surface (always available):</strong>
+        <ul style="margin:6px 0 0 18px;padding:0">
+          <li><code>query_records</code> — read / write any HR module record.</li>
+          <li><code>list_imported_tables</code> / <code>describe_imported_table</code>
+            / <code>query_imported_table</code> — read CSV-imported data.</li>
+          <li><code>read_file</code> / <code>write_file</code> /
+            <code>append_file</code> / <code>make_folder</code> /
+            <code>list_workspace</code> — every path is resolved against
+            this workspace folder; <code>../</code> escapes are rejected.
+            The agent can write HTML dashboards under <code>reports/</code>,
+            CSV exports under <code>exports/</code>, employee-scoped notes
+            under <code>employees/&lt;EMP-CODE&gt;/</code>.</li>
+          <li><code>web_search</code> / <code>web_fetch</code> — live web lookups.</li>
+          <li>Composio actions (<code>send_email</code>, <code>create_calendar_event</code>,
+            <code>upload_to_drive</code>, <code>send_signature_request</code>) —
+            exposed automatically when a Composio key is configured.</li>
+          <li>Any user-defined recipe under <code>recipes/</code>.</li>
+        </ul>
+      </div>
+      <div class="field" style="margin-top:14px">
         <label style="font-weight:600;display:flex;gap:8px;align-items:center;cursor:pointer">
           <input type="checkbox" id="ai_local_only" name="ai_local_only"
                  value="1"{ai_local_only_checked} style="width:auto">
-          <span>Restrict the AI agent to local data only</span>
+          <span>Hard-restrict the AI agent to local data (paranoid mode)</span>
         </label>
-        <div class="hint" style="margin-top:8px">
-          When <strong>ON</strong> (default + recommended) the agent operates inside a
-          Python-level sandbox enforced at three layers:
-          <ul style="margin:6px 0 0 18px;padding:0">
-            <li><strong>Tool whitelist:</strong> <code>web_search</code> / <code>web_fetch</code>
-              and every Composio action (Gmail, Calendar, Drive, Slack, …) are
-              stripped from the agent's tool list — it cannot reference what
-              it doesn't have.</li>
-            <li><strong>Path guard:</strong> any file-touching tool resolves user-supplied
-              paths against this workspace folder and rejects anything that
-              tries to escape it.</li>
-            <li><strong>Network kill-switch:</strong> outbound HTTP from the agent thread
-              is monkey-patched to raise <code>NetworkBlocked</code> for the
-              duration of the run — belt-and-braces if a tool slips through
-              the whitelist. Loopback (the app talking to its own API) stays
-              allowed.</li>
-          </ul>
-          Allowed surface: this workspace's SQLite database, imported CSV
-          tables, files under <code>employees/&lt;EMP-CODE&gt;/</code>, and any
-          local recipes you've defined.
-          <br><br>
-          Turn this <strong>OFF</strong> only if you want the agent to use
-          <code>web_search</code> / <code>web_fetch</code> or trigger Composio
-          actions. The model provider will then receive HR context in its
-          prompts.
+        <div class="hint" style="margin-top:6px">
+          Off by default. Tick this box only if you want the agent denied
+          web + Composio access — for example, when handling unusually
+          sensitive employee data and prompts must never reach a public
+          endpoint. When ON, the sandbox strips <code>web_search</code> /
+          <code>web_fetch</code> and every Composio action from the
+          tool list AND monkey-patches the agent thread's outbound HTTP
+          to raise <code>NetworkBlocked</code>.
         </div>
       </div>
     </div>

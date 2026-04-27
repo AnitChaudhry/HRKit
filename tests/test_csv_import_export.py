@@ -6,8 +6,9 @@ Covers:
 - ``csv_import.safe_select`` refuses any name outside the sandbox prefix.
 - ``csv_import.drop_table`` only drops imported_* tables.
 - ``csv_export._module_rows`` returns the same column order as the UI.
-- ``branding.ai_local_only`` defaults to True; the chat agent's tool list
-  excludes web tools when on, includes them when off.
+- ``branding.ai_local_only`` defaults to False (full-capability sandbox);
+  the chat agent's tool list includes web tools by default and excludes
+  them only when the operator explicitly opts into paranoid mode.
 - The imported-table AI tools return safe error strings, not raise.
 """
 from __future__ import annotations
@@ -147,14 +148,15 @@ def test_exportable_modules_lists_real_modules():
 # ---------------------------------------------------------------------------
 # AI local-only sandbox
 # ---------------------------------------------------------------------------
-def test_ai_local_only_default_true(conn):
-    assert branding.ai_local_only(conn) is True
-
-
-def test_ai_local_only_off_when_setting_zero(conn):
-    conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('AI_LOCAL_ONLY', '0')")
-    conn.commit()
+def test_ai_local_only_default_false(conn):
+    """Default is now False (full-capability sandbox)."""
     assert branding.ai_local_only(conn) is False
+
+
+def test_ai_local_only_on_when_setting_one(conn):
+    conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('AI_LOCAL_ONLY', '1')")
+    conn.commit()
+    assert branding.ai_local_only(conn) is True
 
 
 def test_ai_local_only_truthy_strings(conn):
@@ -163,6 +165,14 @@ def test_ai_local_only_truthy_strings(conn):
                      (raw,))
         conn.commit()
         assert branding.ai_local_only(conn) is True, f"failed for {raw!r}"
+
+
+def test_ai_local_only_falsy_strings(conn):
+    for raw in ("0", "false", "off", "no", ""):
+        conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('AI_LOCAL_ONLY', ?)",
+                     (raw,))
+        conn.commit()
+        assert branding.ai_local_only(conn) is False, f"failed for {raw!r}"
 
 
 def test_imported_table_tools_handle_unknown_table_gracefully(conn):
@@ -178,6 +188,52 @@ def test_imported_table_tools_handle_unknown_table_gracefully(conn):
     csv_import.import_csv(conn, filename="x.csv", raw_bytes=b"a,b\n1,2\n")
     out = by_name["query_imported_table"]("imported_x", columns=["a"])
     assert '"a"' in out and '"rows"' in out
+
+
+def test_workspace_fs_tools_write_read_list(tmp_path):
+    """write_file -> list_workspace -> read_file round trip works under the
+    workspace root, and path traversal is rejected."""
+    from hrkit import chat
+    tools = chat._build_workspace_fs_tools(tmp_path)
+    by_name = {t.__name__: t for t in tools}
+    assert set(by_name) == {"read_file", "write_file", "append_file",
+                             "make_folder", "list_workspace"}
+
+    # Write a report file, read it back.
+    out = by_name["write_file"]("reports/q3.html", "<h1>Headcount</h1>")
+    assert out.startswith("ok ") and "reports" in out
+    assert (tmp_path / "reports" / "q3.html").exists()
+    assert by_name["read_file"]("reports/q3.html").startswith("<h1>")
+
+    # Append works + size cap is enforced via integer comparison, not parse.
+    out = by_name["append_file"]("reports/q3.html", "\n<p>2026</p>")
+    assert "appended" in out
+
+    # list_workspace returns JSON with the new folder.
+    listing = by_name["list_workspace"]()
+    assert "reports" in listing and "entries" in listing
+
+    # make_folder is idempotent.
+    assert by_name["make_folder"]("exports").startswith("ok")
+    assert by_name["make_folder"]("exports").startswith("ok")  # again
+
+    # Path traversal — every tool refuses to escape the workspace.
+    for tool, args in (
+        ("write_file", ("../escape.txt", "leak")),
+        ("read_file", ("../escape.txt",)),
+        ("make_folder", ("..",)),
+        ("list_workspace", ("..",)),
+    ):
+        result = by_name[tool](*args)
+        assert isinstance(result, str)
+        assert result.startswith("error:") and "escapes workspace" in result
+
+
+def test_workspace_fs_tools_no_workspace_returns_empty():
+    """Building the tools without a workspace yields an empty list (used at
+    import time before a workspace is bound)."""
+    from hrkit import chat
+    assert chat._build_workspace_fs_tools(None) == []
 
 
 def test_imported_table_tools_refuse_core_table_names(conn):

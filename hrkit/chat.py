@@ -117,16 +117,71 @@ def _resolve_helper(mod, op: str) -> Callable:
     )
 
 
+class ConfirmationRequired(RuntimeError):
+    """Raised when a destructive op was requested without ``confirm=true``.
+
+    The dispatcher catches this and surfaces it as a tool reply so the LLM
+    has to ask the user, get explicit consent, then call again with
+    ``confirm=true``. Never user-visible directly — the agent reads the
+    string and prompts.
+    """
+
+
+def _is_truthy(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    if isinstance(value, str):
+        return value.strip().lower() in ("1", "true", "yes", "on")
+    return False
+
+
+def _record_ai_audit(conn, *, action: str, module: str,
+                     entity_id: Any, changes: dict[str, Any]) -> None:
+    """Write an AI-attributed row into the audit_log table. Best-effort —
+    if the audit_log table doesn't exist (older workspace) we silently skip
+    so the underlying op still succeeds."""
+    try:
+        from .modules import audit_log
+    except Exception:  # noqa: BLE001
+        return
+    try:
+        audit_log.record(
+            conn,
+            actor="ai",
+            action=action,
+            entity_type=module,
+            entity_id=int(entity_id) if entity_id not in (None, "") else None,
+            changes=changes,
+        )
+    except Exception as exc:  # noqa: BLE001 - audit must never break the op
+        log.warning("audit_log.record failed for ai action %s: %s", action, exc)
+
+
 def _dispatch(conn, module: str, op: str, args: dict[str, Any] | None) -> Any:
     """Call the right per-module helper for ``op``.
 
     Centralised so both the live tool and unit tests exercise the same path.
     Returns the helper's raw result (id / row / list / None).
+
+    Two extra layers vs the simple dispatch:
+
+    * **Destructive-action gate** — ``delete`` requires ``args.confirm=true``.
+      Without it we raise :class:`ConfirmationRequired` so the agent has to
+      ask the user. ``query_records`` catches the exception and returns the
+      message as a tool reply; pydantic-ai's docstring already tells the
+      model to confirm first.
+    * **AI audit trail** — every successful create / update / delete is
+      recorded in the ``audit_log`` table with ``actor='ai'`` and a
+      ``changes_json`` blob containing the tool's arguments + the result
+      id. The user views the trail at ``/m/audit_log``.
     """
     op = (op or "").strip().lower()
     if op not in _ALLOWED_OPS:
         raise ValueError(f"op must be one of {_ALLOWED_OPS}, got '{op}'")
     args = dict(args or {})
+    confirm = _is_truthy(args.pop("confirm", False))
     mod = _load_module(module, conn)
     fn = _resolve_helper(mod, op)
 
@@ -142,7 +197,11 @@ def _dispatch(conn, module: str, op: str, args: dict[str, Any] | None) -> Any:
         data = args.get("data")
         if not isinstance(data, dict):
             data = {k: v for k, v in args.items() if k not in ("module", "op")}
-        return fn(conn, data)
+        new_id = fn(conn, data)
+        _record_ai_audit(conn, action=f"{module}.create",
+                         module=module, entity_id=new_id,
+                         changes={"data": data, "result": {"id": new_id}})
+        return new_id
     if op == "update":
         item_id = args.get("id") or args.get("item_id")
         if item_id is None:
@@ -153,12 +212,26 @@ def _dispatch(conn, module: str, op: str, args: dict[str, Any] | None) -> Any:
                     if k not in ("module", "op", "id", "item_id")}
         if not data:
             raise ValueError("'update' requires args.data with at least one field")
-        return fn(conn, int(item_id), data)
+        result = fn(conn, int(item_id), data)
+        _record_ai_audit(conn, action=f"{module}.update",
+                         module=module, entity_id=item_id,
+                         changes={"data": data})
+        return result
     if op == "delete":
         item_id = args.get("id") or args.get("item_id")
         if item_id is None:
             raise ValueError("'delete' requires args.id")
-        return fn(conn, int(item_id))
+        if not confirm:
+            raise ConfirmationRequired(
+                f"Refusing to delete {module} #{item_id} without explicit "
+                f"confirmation. Ask the user in chat. If they say yes, retry "
+                f"the same call with args.confirm=true."
+            )
+        result = fn(conn, int(item_id))
+        _record_ai_audit(conn, action=f"{module}.delete",
+                         module=module, entity_id=item_id,
+                         changes={"confirm": True})
+        return result
     # Unreachable thanks to the guard above, but mypy-friendly.
     raise ValueError(f"unhandled op '{op}'")  # pragma: no cover
 
@@ -203,17 +276,27 @@ def _build_query_tool(conn) -> Callable[..., str]:
         Args:
           module: One of the HR module slugs ({modules}).
           op: One of 'list', 'get', 'create', 'update', 'delete'.
-          args: For 'get'/'delete' use {{"id": <int>}}. For 'create' use
+          args: For 'get' use {{"id": <int>}}. For 'create' use
                 {{"data": {{...fields...}}}} or pass fields inline. For
                 'update' use {{"id": <int>, "data": {{...fields_to_change...}}}}.
-                For 'list' pass {{}} or omit.
+                For 'list' pass {{}} or omit. For 'delete' use
+                {{"id": <int>, "confirm": true}} — the ``confirm: true``
+                flag is REQUIRED. Without it the call returns a "confirm
+                required" message; you must ask the user in chat first,
+                wait for an explicit yes, then retry with confirm=true.
+
+        Every successful create / update / delete is recorded in the
+        audit_log table (actor='ai', timestamp, full args). The user can
+        review or revert your work at /m/audit_log.
 
         Returns a JSON string with the result, or an error message prefixed
-        with 'error:'. Always confirm with the user before calling 'delete'.
+        with 'error:' / 'confirm required:'.
         """
         try:
             result = _dispatch(conn, module, op, args or {})
             return _summarise(result)
+        except ConfirmationRequired as exc:
+            return f"confirm required: {exc}"
         except (ValueError, TypeError, KeyError) as exc:
             return f"error: {exc}"
         except Exception as exc:  # pragma: no cover - defensive
@@ -224,6 +307,309 @@ def _build_query_tool(conn) -> Callable[..., str]:
     if query_records.__doc__:
         query_records.__doc__ = query_records.__doc__.replace("{modules}", allowed_str)
     return query_records
+
+
+def _build_workspace_fs_tools(workspace_root: Path | None,
+                               conn: Any = None) -> list[Callable[..., str]]:
+    """Return file-touching tools bounded to ``workspace_root``.
+
+    Lets the agent write HTML dashboards, CSV reports, markdown notes etc.
+    into the workspace folder so the user can open them from the app's
+    file browser. Every path is resolved through
+    :func:`hrkit.sandbox.assert_path_in_workspace`, so attempts like
+    ``../../etc/passwd`` or absolute paths outside the workspace raise a
+    plain ``error: path escapes workspace`` instead of leaking data.
+
+    Returned tools (no-op empty list when ``workspace_root`` is None — used
+    at import time before a workspace is bound):
+      - ``read_file(rel_path)``        -> file contents (text, capped 200 KB)
+      - ``write_file(rel_path, body)`` -> "ok N bytes" / "error: ..."
+      - ``append_file(rel_path, body)`` -> "ok appended N bytes"
+      - ``make_folder(rel_path)``      -> "ok" / "error: ..."
+      - ``list_workspace(rel_path?)``  -> JSON ``{path, entries[]}``
+
+    Encoding is utf-8 throughout. Files larger than 1 MB on read are
+    truncated; writes are size-capped at 5 MB to avoid runaway prompts
+    that fill the disk.
+    """
+    if workspace_root is None:
+        return []
+    from . import sandbox
+
+    root = Path(workspace_root)
+    READ_CAP = 200 * 1024
+    WRITE_CAP = 5 * 1024 * 1024
+
+    def _resolve(rel_path: str) -> Path:
+        return sandbox.assert_path_in_workspace(rel_path or "", root)
+
+    def _audit(action: str, rel: str, **extra: Any) -> None:
+        _record_ai_audit(
+            conn, action=f"workspace.{action}", module="workspace",
+            entity_id=None,
+            changes={"rel_path": rel, **extra},
+        )
+
+    def read_file(rel_path: str) -> str:
+        """Read a UTF-8 text file from the workspace.
+
+        Args:
+          rel_path: path relative to the workspace root, e.g.
+            ``reports/Q3-headcount.html`` or ``employees/EMP-0001/notes.md``.
+
+        Returns the file body, truncated to 200 KB. Returns a string
+        starting with ``error:`` if the path escapes the workspace, the
+        file doesn't exist, or it can't be decoded as text.
+        """
+        try:
+            p = _resolve(rel_path)
+        except ValueError as exc:
+            return f"error: {exc}"
+        if not p.exists():
+            return f"error: no such file: {rel_path}"
+        if not p.is_file():
+            return f"error: not a file: {rel_path}"
+        try:
+            data = p.read_bytes()[:READ_CAP + 1]
+        except OSError as exc:
+            return f"error: read failed: {exc}"
+        try:
+            text = data.decode("utf-8")
+        except UnicodeDecodeError:
+            text = data.decode("latin-1", errors="replace")
+        if len(data) > READ_CAP:
+            text = text[:READ_CAP] + f"\n... (truncated; file > {READ_CAP} bytes)"
+        return text
+
+    def write_file(rel_path: str, body: str) -> str:
+        """Create or overwrite a UTF-8 text file inside the workspace.
+
+        Args:
+          rel_path: path relative to the workspace root. Parent folders
+            are created as needed. Common destinations:
+              - ``reports/<name>.html`` for dashboards.
+              - ``exports/<name>.csv`` for analysis dumps.
+              - ``employees/<EMP-CODE>/memory/<note>.md`` for HR notes.
+          body: file contents (utf-8 text). Capped at 5 MB.
+
+        Returns ``"ok N bytes -> <relpath>"`` on success or an error
+        string on failure.
+        """
+        if body is None:
+            body = ""
+        if not isinstance(body, str):
+            body = str(body)
+        if len(body.encode("utf-8")) > WRITE_CAP:
+            return f"error: write too large (max {WRITE_CAP} bytes)"
+        try:
+            p = _resolve(rel_path)
+        except ValueError as exc:
+            return f"error: {exc}"
+        try:
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(body, encoding="utf-8")
+        except OSError as exc:
+            return f"error: write failed: {exc}"
+        rel = str(p.relative_to(root)).replace("\\", "/")
+        _audit("write_file", rel, bytes=len(body.encode("utf-8")))
+        return f"ok {len(body.encode('utf-8'))} bytes -> {p.relative_to(root)}"
+
+    def append_file(rel_path: str, body: str) -> str:
+        """Append UTF-8 text to a file inside the workspace.
+
+        Same path rules as ``write_file``. Creates the file if it
+        doesn't exist. Useful for streaming logs or accumulating notes.
+        """
+        if body is None:
+            body = ""
+        if not isinstance(body, str):
+            body = str(body)
+        try:
+            p = _resolve(rel_path)
+        except ValueError as exc:
+            return f"error: {exc}"
+        try:
+            p.parent.mkdir(parents=True, exist_ok=True)
+            existing = 0
+            if p.exists():
+                existing = p.stat().st_size
+            if existing + len(body.encode("utf-8")) > WRITE_CAP:
+                return f"error: append would exceed cap (max {WRITE_CAP} bytes total)"
+            with p.open("a", encoding="utf-8") as fh:
+                fh.write(body)
+        except OSError as exc:
+            return f"error: append failed: {exc}"
+        rel = str(p.relative_to(root)).replace("\\", "/")
+        _audit("append_file", rel, bytes=len(body.encode("utf-8")))
+        return f"ok appended {len(body.encode('utf-8'))} bytes -> {p.relative_to(root)}"
+
+    def make_folder(rel_path: str) -> str:
+        """Create a folder (and any missing parents) inside the workspace.
+
+        Args:
+          rel_path: path relative to the workspace root.
+
+        Returns ``"ok -> <relpath>"`` on success. Idempotent — succeeds
+        if the folder already exists.
+        """
+        try:
+            p = _resolve(rel_path)
+        except ValueError as exc:
+            return f"error: {exc}"
+        try:
+            p.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            return f"error: mkdir failed: {exc}"
+        rel = str(p.relative_to(root)).replace("\\", "/")
+        _audit("make_folder", rel)
+        return f"ok -> {p.relative_to(root)}"
+
+    def list_workspace(rel_path: str = "") -> str:
+        """List the contents of a workspace folder.
+
+        Args:
+          rel_path: subfolder relative to the workspace root. Empty
+            string (default) lists the workspace root itself.
+
+        Returns a JSON string ``{"path": "...", "entries": [...]}`` where
+        each entry is ``{"name", "kind": "file"|"dir", "size", "rel_path"}``.
+        Errors come back prefixed with ``error:``.
+        """
+        try:
+            p = _resolve(rel_path or "")
+        except ValueError as exc:
+            return f"error: {exc}"
+        if not p.exists():
+            return f"error: no such path: {rel_path}"
+        if not p.is_dir():
+            return f"error: not a directory: {rel_path}"
+        entries = []
+        try:
+            for child in sorted(p.iterdir(), key=lambda x: (x.is_file(), x.name.lower())):
+                try:
+                    stat = child.stat()
+                except OSError:
+                    continue
+                entries.append({
+                    "name": child.name,
+                    "kind": "dir" if child.is_dir() else "file",
+                    "size": stat.st_size if child.is_file() else 0,
+                    "rel_path": str(child.relative_to(root)).replace("\\", "/"),
+                })
+        except OSError as exc:
+            return f"error: list failed: {exc}"
+        rel = str(p.relative_to(root)).replace("\\", "/") or "."
+        return json.dumps({"path": rel, "entries": entries}, ensure_ascii=False)
+
+    # Make the tool functions tag themselves so sandbox.is_network_tool
+    # never accidentally classifies them as network-touching.
+    for fn in (read_file, write_file, append_file, make_folder, list_workspace):
+        setattr(fn, "network", False)
+
+    return [read_file, write_file, append_file, make_folder, list_workspace]
+
+
+def _build_composio_action_tools(conn) -> list[Callable[..., str]]:
+    """Wrap configured Composio handlers as direct agent-callable tools.
+
+    Returns an empty list when no Composio key is on file. The four
+    handlers we already register for event-driven hooks are exposed
+    here for the agent to invoke directly:
+
+      - ``send_email(to, subject, body, html?)``  -> Gmail send
+      - ``create_calendar_event(summary, start_date, end_date, description?)``
+      - ``upload_to_drive(file_path, filename?, folder_id?)``
+      - ``send_signature_request(signature_request_id)``
+
+    Each tool returns a JSON-encoded result envelope. When sandboxed
+    (``AI_LOCAL_ONLY=1``) these tools are still BUILT, then dropped by
+    :func:`hrkit.sandbox.filter_tools` since their names look like
+    Composio action slugs once flagged. We mark them with
+    ``__name__`` upper-snake so the sandbox filter recognises them.
+    """
+    try:
+        from . import composio_client
+    except Exception:  # noqa: BLE001
+        return []
+    if not composio_client.is_configured(conn):
+        return []
+    try:
+        from .integrations import composio_actions
+    except Exception:  # noqa: BLE001
+        return []
+
+    def _composio_audit(action: str, args: dict[str, Any], result: dict[str, Any]) -> None:
+        _record_ai_audit(
+            conn, action=f"composio.{action}", module="composio",
+            entity_id=None,
+            changes={"args": args, "ok": bool(result.get("ok"))},
+        )
+
+    def send_email(to: str, subject: str, body: str, html: str = "") -> str:
+        """Send an email via the operator's connected Gmail account.
+
+        Args:
+          to: recipient email address.
+          subject: email subject line.
+          body: plain-text body. Used as the ``html`` value if ``html`` is empty.
+          html: optional HTML body. If supplied, becomes the message body.
+
+        Returns the raw Composio response as JSON, or an error string.
+        """
+        result = composio_actions.send_offer_email(
+            {"name": to, "email": to, "subject": subject,
+             "body": html or body, "position": ""},
+            conn=conn,
+        )
+        _composio_audit("send_email",
+                        {"to": to, "subject": subject}, result)
+        return json.dumps(result, default=str, ensure_ascii=False)
+
+    def create_calendar_event(summary: str, start_date: str, end_date: str = "",
+                              description: str = "") -> str:
+        """Create a Google Calendar event in the operator's primary calendar."""
+        result = composio_actions.block_calendar_for_leave(
+            {"employee_name": summary, "leave_type": "",
+             "start_date": start_date, "end_date": end_date or start_date,
+             "reason": description},
+            conn=conn,
+        )
+        _composio_audit("create_calendar_event",
+                        {"summary": summary, "start_date": start_date,
+                         "end_date": end_date}, result)
+        return json.dumps(result, default=str, ensure_ascii=False)
+
+    def upload_to_drive(file_path: str, filename: str = "", folder_id: str = "") -> str:
+        """Upload a workspace file to the operator's Google Drive.
+
+        ``file_path`` must already exist in the workspace; pair this with
+        ``write_file`` if the agent generated the file in this turn.
+        """
+        result = composio_actions.upload_payslip_to_drive(
+            {"file_path": file_path, "filename": filename, "folder_id": folder_id},
+            conn=conn,
+        )
+        _composio_audit("upload_to_drive",
+                        {"file_path": file_path, "filename": filename}, result)
+        return json.dumps(result, default=str, ensure_ascii=False)
+
+    def send_signature_request(signature_request_id: int) -> str:
+        """Dispatch an existing ``signature_request`` row via the e-sign provider."""
+        result = composio_actions.send_signature_request(
+            {"signature_request_id": int(signature_request_id)}, conn=conn,
+        )
+        _composio_audit("send_signature_request",
+                        {"signature_request_id": int(signature_request_id)}, result)
+        return json.dumps(result, default=str, ensure_ascii=False)
+
+    # Tag with upper-snake names so sandbox.is_network_tool correctly
+    # treats these as network actions — they get dropped when the user
+    # explicitly opts into AI_LOCAL_ONLY mode.
+    send_email.__name__ = "GMAIL_SEND_EMAIL"
+    create_calendar_event.__name__ = "GOOGLECALENDAR_CREATE_EVENT"
+    upload_to_drive.__name__ = "GOOGLEDRIVE_UPLOAD_FILE"
+    send_signature_request.__name__ = "ESIGN_SEND_REQUEST"
+    return [send_email, create_calendar_event, upload_to_drive, send_signature_request]
 
 
 def _build_imported_table_tools(conn) -> list[Callable[..., str]]:
@@ -315,7 +701,16 @@ def _build_system_prompt(conn=None) -> str:
         "Use list_imported_tables() / describe_imported_table(name) / "
         "query_imported_table(name, columns, where, limit) to read any CSV "
         "the user has imported into this workspace. "
-        "Always confirm actions before deleting. "
+        "DESTRUCTIVE-ACTION CONTRACT: every delete is gated. The first "
+        "time you call query_records with op='delete', you'll get a "
+        "'confirm required' message back — that is your cue to ASK THE "
+        "USER in chat ('I'm about to delete X — should I?'), wait for "
+        "their explicit yes, then retry the same call with "
+        "args.confirm=true. Never invent a confirmation; always ask. "
+        "AUDIT TRAIL: every successful create / update / delete you "
+        "perform is logged in audit_log with actor='ai', a timestamp, "
+        "and your full args. The user reviews your work at "
+        "/m/audit_log — assume it's monitored. "
         "When listing, return a short summary, not the full JSON."
     )
     if local_only:
@@ -327,7 +722,17 @@ def _build_system_prompt(conn=None) -> str:
             "Do not pretend to. If a question requires web data, say so."
         )
     return base + (
-        " You also have web_search(query) and web_fetch(url) for live web lookups."
+        " You operate inside a sandboxed full-capability agent harness:"
+        " web_search(query) and web_fetch(url) for live web lookups;"
+        " read_file / write_file / append_file / make_folder /"
+        " list_workspace for the workspace folder (create reports under"
+        " reports/, exports under exports/, employee files under"
+        " employees/<EMP-CODE>/ — every path stays inside the workspace);"
+        " plus any Composio actions (send_email, create_calendar_event,"
+        " upload_to_drive, send_signature_request, ...) that the operator"
+        " has connected. Generate HTML dashboards or markdown reports"
+        " when a question warrants it and tell the user where you saved"
+        " the file."
     )
 
 
@@ -453,12 +858,17 @@ async def handle_chat_message(handler, body: dict[str, Any]) -> None:
             if row and row["employee_code"]:
                 employee_code_for_save = str(row["employee_code"]).strip() or None
         tool = _build_query_tool(conn)
-        # Build the candidate tool list, then run it through the sandbox
-        # filter. ``filter_tools`` is a no-op when AI_LOCAL_ONLY is off, and
-        # drops every network-touching tool (web_*, Composio actions, etc.)
-        # when it is on. Local-only is the default for this app.
-        tools: list = [tool, *_build_imported_table_tools(conn),
-                       *ai_tools.builtin_tools()]
+        # Build the candidate tool list — the agent is a full-capability
+        # sandboxed agent by default. ``filter_tools`` drops every
+        # network-touching tool only when the user has explicitly turned
+        # AI_LOCAL_ONLY back on; it's a no-op in the default config.
+        tools: list = [
+            tool,
+            *_build_imported_table_tools(conn),
+            *_build_workspace_fs_tools(workspace_root, conn),
+            *_build_composio_action_tools(conn),
+            *ai_tools.builtin_tools(),
+        ]
         if workspace_root is not None:
             try:
                 tools.extend(recipes_ui.build_recipe_tools(conn, workspace_root))

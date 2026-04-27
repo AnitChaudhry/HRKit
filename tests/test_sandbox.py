@@ -28,22 +28,24 @@ def _conn_with(setting_value: str | None) -> sqlite3.Connection:
 # ---------------------------------------------------------------------------
 # is_sandboxed — defaults
 # ---------------------------------------------------------------------------
-def test_is_sandboxed_default_on(monkeypatch):
-    """No env, no DB row, no conn -> sandbox is ON (the safer default)."""
+def test_is_sandboxed_default_off(monkeypatch):
+    """No env, no DB row, no conn -> sandbox is OFF (full-capability agent)."""
     monkeypatch.delenv("AI_LOCAL_ONLY", raising=False)
-    assert sandbox.is_sandboxed(None) is True
+    assert sandbox.is_sandboxed(None) is False
 
 
-def test_is_sandboxed_explicit_off_via_db(monkeypatch):
+def test_is_sandboxed_explicit_on_via_db(monkeypatch):
+    """Operator opts into paranoid mode by setting AI_LOCAL_ONLY=1."""
     monkeypatch.delenv("AI_LOCAL_ONLY", raising=False)
-    conn = _conn_with("0")
-    assert sandbox.is_sandboxed(conn) is False
+    conn = _conn_with("1")
+    assert sandbox.is_sandboxed(conn) is True
 
 
 def test_is_sandboxed_env_overrides_db(monkeypatch):
-    monkeypatch.setenv("AI_LOCAL_ONLY", "0")
-    conn = _conn_with("1")  # DB says ON, env says OFF -> env wins
-    assert sandbox.is_sandboxed(conn) is False
+    """Env wins over DB. DB OFF + env ON -> sandbox is ON."""
+    monkeypatch.setenv("AI_LOCAL_ONLY", "1")
+    conn = _conn_with("0")
+    assert sandbox.is_sandboxed(conn) is True
 
 
 # ---------------------------------------------------------------------------

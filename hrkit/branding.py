@@ -149,14 +149,21 @@ def composio_api_key(conn: sqlite3.Connection | None) -> str:
 
 
 def ai_local_only(conn: sqlite3.Connection | None) -> bool:
-    """Return True when the AI agent must be sandboxed to local data.
+    """Return True when the AI agent should be hard-restricted to local data
+    (no web tools, no Composio actions exposed as agent tools).
 
-    Default: True (safest — HR data is sensitive). Flip to False only when
-    the user explicitly opts the agent into web tools / network actions.
+    Default: **False** — the agent is a full-capability sandboxed agent
+    (web + Composio + workspace file writes). Only the path/network
+    boundary is enforced (file ops stay inside the workspace; SQL stays
+    inside this DB). Flip the setting ON only when the operator wants
+    the agent denied web + external integration access — e.g. when
+    handling unusually sensitive employee data and prompts must never
+    reach the public internet.
+
     Reads ``AI_LOCAL_ONLY`` from env var first, then settings, then default.
     Truthy values: '1', 'true', 'on', 'yes' (case-insensitive).
     """
-    raw = _read(conn, "AI_LOCAL_ONLY", "1")
+    raw = _read(conn, "AI_LOCAL_ONLY", "0")
     return str(raw).strip().lower() in ("1", "true", "on", "yes")
 
 
