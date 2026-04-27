@@ -192,7 +192,7 @@ from hrkit.branding import (
 
 Env var names (Agent 1 documents these):
 `APP_NAME`, `AI_PROVIDER`, `AI_API_KEY`, `AI_MODEL`,
-`COMPOSIO_API_KEY`, `GETSET_ROOT` (existing).
+`COMPOSIO_API_KEY`, `HRKIT_ROOT` (existing).
 
 Defaults:
 - `APP_NAME` → `"HR Desk"`

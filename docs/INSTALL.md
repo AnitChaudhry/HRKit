@@ -100,7 +100,7 @@ pip uninstall hrkit                          # PyPI
 npm uninstall -g @thinqmesh/hrkit            # npm (global)
 ```
 
-Your workspace folder (everything under `<workspace>/.getset/`,
+Your workspace folder (everything under `<workspace>/.hrkit/`,
 `<workspace>/employees/`, `<workspace>/conversations/`, etc.) is
 **untouched** by uninstalling — your data stays put on disk.
 

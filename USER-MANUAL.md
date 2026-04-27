@@ -47,8 +47,8 @@ becomes the **workspace**.
 <app> init "D:\My-HR"
 ```
 
-That command creates the folder, a `getset.md` marker (workspace metadata),
-and an empty `.getset/` subdirectory for the database and config.
+That command creates the folder, a `hrkit.md` marker (workspace metadata),
+and an empty `.hrkit/` subdirectory for the database and config.
 
 ### Step 3 - Start the server
 
@@ -120,7 +120,7 @@ You're now ready for daily HR work.
 |                                                                |
 |  Workspace                                                     |
 |    Root:            D:\My-HR                                    |
-|    DB:              D:\My-HR\.getset\getset.db                  |
+|    DB:              D:\My-HR\.hrkit\hrkit.db                  |
 |    Activity rows:   1,284                                      |
 |                                                                |
 |  [Save]                                                        |
@@ -131,12 +131,12 @@ What lives where:
 
 | Field             | Stored in                            | Env override         |
 |-------------------|--------------------------------------|----------------------|
-| App name          | `settings` table + `.getset/config.json` | `APP_NAME`        |
+| App name          | `settings` table + `.hrkit/config.json` | `APP_NAME`        |
 | AI provider       | `settings` table                     | `AI_PROVIDER`        |
-| AI API key        | `.getset/config.json` (cleartext)    | `AI_API_KEY`         |
+| AI API key        | `.hrkit/config.json` (cleartext)    | `AI_API_KEY`         |
 | AI model          | `settings` table                     | `AI_MODEL`           |
-| Composio API key  | `.getset/config.json` (cleartext)    | `COMPOSIO_API_KEY`   |
-| Workspace root    | filesystem                           | `GETSET_ROOT`        |
+| Composio API key  | `.hrkit/config.json` (cleartext)    | `COMPOSIO_API_KEY`   |
+| Workspace root    | filesystem                           | `HRKIT_ROOT`        |
 
 Keys are masked in the UI as `sk-***...last4`. Click **Reveal** to see the
 full value; **Replace** to overwrite it.
@@ -475,15 +475,15 @@ taskkill /PID <PID> /F
   into a file when you start it:
 
   ```bash
-  <app> serve > "D:\My-HR\.getset\server.log" 2>&1
+  <app> serve > "D:\My-HR\.hrkit\server.log" 2>&1
   ```
 
 ### The DB looks wrong / weird state
 
-The DB is at `<workspace>/.getset/getset.db`. You can:
+The DB is at `<workspace>/.hrkit/hrkit.db`. You can:
 
 - **Inspect** it with any SQLite browser (DB Browser for SQLite, etc.).
-- **Back it up** by copying the whole `.getset/` folder.
+- **Back it up** by copying the whole `.hrkit/` folder.
 - **Rebuild caches** (folder tree only, not module data) by deleting
   the DB and rerunning `<app> scan`. **Warning** - that drops module
   data too. Only do this on a fresh install or if you have a backup.

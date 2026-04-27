@@ -50,14 +50,14 @@ Each module gets its own page under `/m/<module>` and CRUD JSON API at
 - **Stack**: Python 3.10+, SQLite, a tiny stdlib HTTP server, plain HTML/CSS/JS.
 - **Single dependency**: [`pydantic-ai-slim[openai]`](https://ai.pydantic.dev/)
   for the in-app AI agent loop. No Claude CLI, no `anthropic` SDK, no Node.
-- **DB-primary**: all module data lives in `<workspace>/.getset/getset.db`.
+- **DB-primary**: all module data lives in `<workspace>/.hrkit/hrkit.db`.
   Folders inside the workspace are demoted to **attachment storage** for
   things like resumes, signed contracts, and PDF payslips.
 - **One unified shell**: every page (home, modules, recruitment kanban,
   org chart, settings, activity) uses the same top navigation. No more
   split between the legacy hiring view and the HR desk view.
 - **Module-level feature flags**: enabled modules live in
-  `.getset/config.json` mirrored to a `settings` table row, with
+  `.hrkit/config.json` mirrored to a `settings` table row, with
   `ENABLED_MODULES` env var as the override. Reads filter through every
   layer — UI nav, HTTP dispatcher, CLI subcommands, AI tool registry —
   so a disabled module is invisible everywhere.
@@ -117,33 +117,38 @@ pip install https://github.com/AnitChaudhry/HRKit/releases/download/v1.0.0/hrkit
 > tree is at [`docs/`](docs/) — Quickstart, AI chat, integrations,
 > recipes, releasing.
 
-## Five-step setup (the promise)
+## Three-step setup (the promise)
 
 ```bash
 # 1. install (pick one of the install commands above)
 
-# 2. initialise a workspace folder
-hrkit init "D:\My-HR"                    # creates the folder + .getset/ + workspace marker
-
-# 3. start the server (this also opens your browser automatically)
+# 2. cd into the folder you want HR-Kit to live in, then start it
 cd "D:\My-HR" && hrkit serve
+#    First run auto-creates `hrkit.md` + `.hrkit/` in this folder.
+#    No separate `hrkit init` step needed — running the server in an
+#    empty folder is enough. All workspace data (DB, config, uploads)
+#    stays inside that folder.
 
-# 4. on first run the browser opens a 5-step wizard:
+# 3. on first run the browser opens a 5-step wizard:
 #    - app name (white-label)
-#    - AI provider + key (skippable)
+#    - AI provider + key + model (paste, click Connect, pick a free model)
 #    - choose your modules (presets: Everything / Core only / Recruitment-focused / HR-focused)
 #    - first department
 #    - first employee
 #    Every step except modules selection can be edited later in /settings.
-
-# 5. start using it. Disabled modules can be re-enabled any time on
-#    /settings → Modules.
 ```
 
-That is the whole onboarding. Five steps, no `.env` files to learn, no
-docker-compose, no migrations to run by hand (the app runs them on first
-boot). Closing the terminal stops the server — there is no hosted SaaS
-version, every install runs on the user's own laptop on `127.0.0.1`.
+That is the whole onboarding. No `.env` files to learn, no docker-compose,
+no migrations to run by hand (the app runs them on first boot), no
+separate workspace-init step. Closing the terminal stops the server —
+there is no hosted SaaS version, every install runs on the user's own
+laptop on `127.0.0.1`.
+
+> **About installation scope.** `pip install hrkit` puts the *Python
+> package* in your usual site-packages (that is how pip works). All
+> *workspace data* — database, config, uploads, attachments — lives
+> inside whichever folder you ran `hrkit serve` in. Pick one folder,
+> back up that folder, you've backed up everything.
 
 > **About `http://127.0.0.1:8765/`:** that is the address your own laptop
 > serves the app on after step 3. It is unreachable from anywhere else,
@@ -179,7 +184,7 @@ The setup wizard offers four presets to bootstrap quickly:
 - **Recruitment-focused** — core + Recruitment, no HR ops
 - **HR-focused** — everything except Recruitment
 
-State lives in `<workspace>/.getset/config.json` (`enabled_modules` key)
+State lives in `<workspace>/.hrkit/config.json` (`enabled_modules` key)
 mirrored to the SQLite `settings` table. The env var
 `ENABLED_MODULES=leave,payroll,...` overrides both for one-shot testing.
 
@@ -229,7 +234,7 @@ Llama-3.3-70B-Instruct entry; override per request from the UI or via
 the `AI_MODEL` env var.
 
 You can also point at your own self-hosted OpenAI-compatible server by
-overriding `AI_PROVIDER` and the base URL in `.getset/config.json`.
+overriding `AI_PROVIDER` and the base URL in `.hrkit/config.json`.
 
 ### Composio for app integrations
 
@@ -246,7 +251,7 @@ only the recruitment-from-email pipeline goes idle.
 ## Configuration surface
 
 Every setting can be supplied two ways: an environment variable or the
-in-app `/settings` page (which writes to `.getset/config.json` inside
+in-app `/settings` page (which writes to `.hrkit/config.json` inside
 your workspace). Env vars win on conflict.
 
 | Env var             | Default                                            | Where it goes                       |
@@ -257,23 +262,23 @@ your workspace). Env vars win on conflict.
 | `AI_MODEL`          | `meta-llama/llama-3.3-70b-instruct:free`           | Model identifier                    |
 | `COMPOSIO_API_KEY`  | (empty)                                            | Composio API key                    |
 | `ENABLED_MODULES`   | (all 11 enabled)                                   | Comma list or JSON, overrides config + DB |
-| `GETSET_ROOT`       | (auto-detected)                                    | Workspace folder path               |
+| `HRKIT_ROOT`       | (auto-detected)                                    | Workspace folder path               |
 
 ### Where keys live
 
-- The `/settings` page writes to `<workspace>/.getset/config.json`.
+- The `/settings` page writes to `<workspace>/.hrkit/config.json`.
 - That file lives **only on the user's laptop**. It is never uploaded.
 - Keys are masked when shown back in the UI (`sk-***...last4`).
-- Add `.getset/` to your global `.gitignore` if you ever put a workspace
+- Add `.hrkit/` to your global `.gitignore` if you ever put a workspace
   in a git repo - the cache and config should not be committed.
 
 ### Workspace layout
 
 ```
 D:\My-HR\
-|-- getset.md                    workspace marker (name, theme, port)
-|-- .getset\
-|   |-- getset.db                SQLite, all modules
+|-- hrkit.md                    workspace marker (name, theme, port)
+|-- .hrkit\
+|   |-- hrkit.db                SQLite, all modules
 |   `-- config.json              keys + per-workspace settings
 |-- attachments\
 |   |-- employees\<code>\        per-employee documents
@@ -316,7 +321,7 @@ your install.
   enforced** - it assumes the only thing on `localhost:8765` is you.
 - Don't expose the port to the public internet. If you must reach it
   remotely, put it behind an SSH tunnel or a reverse proxy that does auth.
-- AI keys are stored as cleartext inside `.getset/config.json` on the
+- AI keys are stored as cleartext inside `.hrkit/config.json` on the
   user's machine. Encrypt the laptop disk; that is the boundary.
 - Composio handles its own OAuth tokens for connected apps - those are
   not stored locally; only your Composio API key is.

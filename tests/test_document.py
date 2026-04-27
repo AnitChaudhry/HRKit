@@ -110,7 +110,7 @@ def test_document_detail_view_includes_download_link(conn):
         "employee_id": emp_id,
         "doc_type": "Contract",
         "filename": "offer-letter.pdf",
-        "file_path": ".getset/uploads/employee/1/offer-letter.pdf",
+        "file_path": ".hrkit/uploads/employee/1/offer-letter.pdf",
     })
     h = _FakeHandler(conn)
     mod.detail_view(h, doc_id)

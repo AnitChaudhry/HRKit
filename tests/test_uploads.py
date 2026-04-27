@@ -163,7 +163,7 @@ def test_save_uploaded_file_strips_path_components(tmp_path):
     assert saved.exists()
     assert saved.name == "passwd"
     # The saved path must stay under the workspace's uploads root.
-    uploads_root = (tmp_path / ".getset" / "uploads").resolve()
+    uploads_root = (tmp_path / ".hrkit" / "uploads").resolve()
     assert str(saved.resolve()).startswith(str(uploads_root))
 
 
@@ -179,7 +179,7 @@ def test_save_uploaded_file_rejects_empty_name(tmp_path):
 # serve_uploaded_file — path-escape rejection
 # ---------------------------------------------------------------------------
 def test_serve_rejects_path_outside_uploads(tmp_path, conn):
-    # Plant a doc row pointing OUTSIDE .getset/uploads.
+    # Plant a doc row pointing OUTSIDE .hrkit/uploads.
     emp_id = conn.execute(
         "INSERT INTO employee (employee_code, full_name, email)"
         " VALUES (?, ?, ?)",

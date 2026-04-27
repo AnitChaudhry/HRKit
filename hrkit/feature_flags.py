@@ -1,6 +1,6 @@
 """Module enable/disable feature flags.
 
-Source of truth: ``.getset/config.json`` under the ``enabled_modules`` key.
+Source of truth: ``.hrkit/config.json`` under the ``enabled_modules`` key.
 Mirror: the SQLite ``settings`` table under ``ENABLED_MODULES`` (JSON list).
 Both are kept in sync by :func:`set_enabled_modules`. Reads prefer the env
 var ``ENABLED_MODULES`` when set (comma- or json-list), then config.json,
@@ -99,7 +99,7 @@ def enabled_modules(conn: sqlite3.Connection | None = None) -> list[str]:
 
     Resolution order:
         1. ``ENABLED_MODULES`` environment variable (comma or json list)
-        2. ``.getset/config.json`` ``enabled_modules`` key
+        2. ``.hrkit/config.json`` ``enabled_modules`` key
         3. ``settings`` table ``ENABLED_MODULES`` row
         4. Default: every module enabled
     """

@@ -39,7 +39,7 @@ HR-Kit is a complete HR system designed to run on a single laptop without Docker
 - Dynamic model picker fetches `/models` from the provider; free models marked with a star and sorted first
 - Per-conversation model override
 - Friendly error translation: "Low credits" instead of `insufficient_quota` stack traces
-- Attachment pin (📎) in the input box — uploaded files are saved to `.getset/uploads/chat/` and inline-extracted text is sent to the AI
+- Attachment pin (📎) in the input box — uploaded files are saved to `.hrkit/uploads/chat/` and inline-extracted text is sent to the AI
 - File-based chat persistence — every conversation written to `.md` (human transcript with frontmatter) + `.json` (raw turns) under `<workspace>/conversations/` or `<workspace>/employees/<EMP-CODE>/conversations/` when scoped to an employee
 - Sidebar lists prior conversations; click to resume
 - Employee context dropdown — when set, the AI's system prompt is enriched with that employee's full record + custom fields + HR notes + recent leave + documents on file
@@ -74,7 +74,7 @@ HR-Kit is a complete HR system designed to run on a single laptop without Docker
     conversations/             # AI chat transcripts (.md + .json sidecar)
     memory/notes.md            # free-form HR notes (read by the AI as context)
 ```
-Existing `.getset/uploads/employee/<id>/` files migrate to the new layout via `hrkit migrate-folders --dry-run` then `--apply`.
+Existing `.hrkit/uploads/employee/<id>/` files migrate to the new layout via `hrkit migrate-folders --dry-run` then `--apply`.
 
 ## CLI
 

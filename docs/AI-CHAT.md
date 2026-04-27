@@ -40,14 +40,14 @@ Click the **📎** (paperclip) in the input box → pick one or more files.
 
 Each file is:
 
-1. Saved to `<workspace>/.getset/uploads/chat/<uuid>/<filename>` on disk.
+1. Saved to `<workspace>/.hrkit/uploads/chat/<uuid>/<filename>` on disk.
 2. Sent to the AI as inline text **if** the extension is in the
    text-extraction list:
    `.txt .md .markdown .rst .csv .tsv .json .yaml .yml .xml .html .htm
    .log .py .js .ts .tsx .jsx .java .go .rs .rb .sh .sql .env`
    …capped at 20,000 characters per file.
 3. For binary types (PDFs, images, .docx) the AI receives a placeholder
-   like `[binary file at .getset/uploads/chat/abc123/cv.pdf — cannot
+   like `[binary file at .hrkit/uploads/chat/abc123/cv.pdf — cannot
    inline-read without an OCR/vision tool]` so it knows the file exists
    but can't read it directly.
 

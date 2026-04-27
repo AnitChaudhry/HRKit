@@ -13,7 +13,7 @@ First stable release. Two big shifts since 0.2.1:
    modules disappear from the navigation, the HTTP dispatcher (404s),
    the CLI subcommands, and the AI assistant's tool registry. Always-on
    core: `department`, `employee`, `role`. Everything else is the user's
-   choice. State lives in `.getset/config.json` mirrored to the SQLite
+   choice. State lives in `.hrkit/config.json` mirrored to the SQLite
    `settings` table; `ENABLED_MODULES` env var overrides both.
 2. **Single unified shell.** The legacy folder-tree sidebar (rendered for
    `/`, `/activity`, and the kanban-era `/d/`, `/p/`, `/t/` URLs) is gone.

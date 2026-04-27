@@ -186,7 +186,7 @@ def set_settings(conn: sqlite3.Connection, values: dict) -> None:
     Keys are accepted case-insensitively ('app_name' or 'APP_NAME' both work)
     so HTTP forms (lowercase) and CLI args can use the same accessor as
     internal callers. Non-secret keys (currently APP_NAME) are mirrored to
-    ``.getset/config.json`` so renderers without a live DB handle still see
+    ``.hrkit/config.json`` so renderers without a live DB handle still see
     the right value. Empty / None values are skipped.
     """
     if not values:

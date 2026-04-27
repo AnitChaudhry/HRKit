@@ -45,10 +45,22 @@ def _now_iso() -> str:
 # ---- command handlers ------------------------------------------------------
 
 def cmd_serve(args: argparse.Namespace) -> int:
-    """Start the HTTP server (lazy import of server module)."""
+    """Start the HTTP server (lazy import of server module).
+
+    If no workspace is found via --path / HRKIT_ROOT / parent walk, auto-init
+    one in the current directory. This makes ``npx @thinqmesh/hrkit`` (or
+    plain ``hrkit serve``) work from any empty folder without a separate
+    init step. Also migrates legacy ``.getset/`` -> ``.hrkit/`` if found.
+    """
     root = _resolve_root(args.path)
     if root is None:
-        return _die("no workspace found; run `hrkit init <dir>` or pass --path")
+        target = Path(args.path).resolve() if args.path else Path.cwd().resolve()
+        cfg.init_workspace(target)
+        print(f"hrkit: created workspace in {target}")
+        root = target
+    actions = cfg.migrate_legacy_layout(root)
+    for line in actions:
+        print(f"hrkit: {line}")
     try:
         from . import server
     except ImportError as e:
@@ -81,7 +93,7 @@ def cmd_scan(args: argparse.Namespace) -> int:
 
 
 def cmd_init(args: argparse.Namespace) -> int:
-    """Scaffold a new workspace/department/position/task folder with a getset.md."""
+    """Scaffold a new workspace/department/position/task folder with a hrkit.md."""
     target = Path(args.path).resolve()
     typ = args.type
     if typ not in cfg.TYPES:
@@ -508,7 +520,7 @@ def cmd_modules(args: argparse.Namespace) -> int:
 
 
 def cmd_backup(args: argparse.Namespace) -> int:
-    """Create a tar.gz of the entire workspace (DB + .getset/ + attachments)."""
+    """Create a tar.gz of the entire workspace (DB + .hrkit/ + attachments)."""
     import tarfile, time
     root = _resolve_root(args.path)
     if root is None:
@@ -888,7 +900,7 @@ def _make_module_runner(handle_fn, module_slug: str):
             return _die(
                 f"module '{module_slug}' is disabled in this workspace. "
                 f"Re-enable it at /settings (Modules card) or in "
-                f".getset/config.json before running this command."
+                f".hrkit/config.json before running this command."
             )
         try:
             return int(handle_fn(args, conn) or 0)

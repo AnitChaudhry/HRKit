@@ -5,31 +5,31 @@
 
 hrkit is a folder-native project management app. Your project structure
 lives on disk as real folders in a fixed three-level hierarchy, and each folder
-is described by a tiny `getset.md` marker file. A SQLite cache is rebuilt by
+is described by a tiny `hrkit.md` marker file. A SQLite cache is rebuilt by
 scanning, and a small HTTP server renders a board UI over it.
 
 ```
 Workspace/
-|-- getset.md                    <- type: workspace
+|-- hrkit.md                    <- type: workspace
 |-- Engineering/                 <- Department
-|   |-- getset.md                <- type: department
+|   |-- hrkit.md                <- type: department
 |   |-- Senior-Backend/          <- Position (job requisition, etc.)
-|   |   |-- getset.md            <- type: position
+|   |   |-- hrkit.md            <- type: position
 |   |   |-- Alice-Kumar/         <- Task (a candidate, a unit of work)
-|   |   |   `-- getset.md        <- type: task
+|   |   |   `-- hrkit.md        <- type: task
 |   |   `-- Bob-Rao/
-|   |       `-- getset.md
+|   |       `-- hrkit.md
 |-- Marketing/
-|   `-- getset.md
+|   `-- hrkit.md
 ```
 
 Three levels: **Department -> Position -> Task**, all under a single
 **Workspace** root. The filesystem is the source of truth. Everything else
 (the SQLite cache, the HTML board) is regenerated from these files.
 
-## The `getset.md` marker
+## The `hrkit.md` marker
 
-Every folder in the hierarchy carries a `getset.md` with YAML frontmatter that
+Every folder in the hierarchy carries a `hrkit.md` with YAML frontmatter that
 identifies its type and holds its metadata. Freeform markdown after the
 frontmatter is preserved as the folder's body / notes.
 
@@ -110,8 +110,8 @@ python -m hrkit scan
 ```
 
 Both will auto-discover the nearest workspace by walking up from the current
-directory looking for a `getset.md` with `type: workspace`. Override with
-`--path <dir>` or the `GETSET_ROOT` environment variable.
+directory looking for a `hrkit.md` with `type: workspace`. Override with
+`--path <dir>` or the `HRKIT_ROOT` environment variable.
 
 ## CLI reference
 
@@ -136,9 +136,9 @@ relying on auto-discovery.
 
 ## The SQLite cache
 
-The database lives at `<workspace>/.getset/getset.db`. It is **a cache, not a
-source of truth.** You can delete the entire `.getset/` folder at any time;
-the next `hrkit scan` will rebuild it from the `getset.md` files on
+The database lives at `<workspace>/.hrkit/hrkit.db`. It is **a cache, not a
+source of truth.** You can delete the entire `.hrkit/` folder at any time;
+the next `hrkit scan` will rebuild it from the `hrkit.md` files on
 disk. Activity history is cached there too, so deleting it will drop the
 change log — everything else rematerializes.
 
@@ -152,11 +152,11 @@ Schema (simplified):
 ## Adding things manually
 
 You do not need the CLI to grow the board. Just make the folder and drop in a
-`getset.md`:
+`hrkit.md`:
 
 ```
 mkdir D:\Acme-Hiring\Engineering\Senior-Backend\Charlie-Singh
-notepad D:\Acme-Hiring\Engineering\Senior-Backend\Charlie-Singh\getset.md
+notepad D:\Acme-Hiring\Engineering\Senior-Backend\Charlie-Singh\hrkit.md
 ```
 
 Paste the task frontmatter shown above, save, and run `hrkit scan`.
@@ -168,9 +168,9 @@ rescan — it moves on the board too. Rename the folder — same deal.
 Because the board is literally a tree of text files, any LLM or agent with
 filesystem access can run it. Claude, Cursor, etc. can:
 
-- create a new candidate folder and write its `getset.md`
+- create a new candidate folder and write its `hrkit.md`
 - update a task's `status:` field to move it across columns
-- append notes to the body of a `getset.md` after an interview
+- append notes to the body of a `hrkit.md` after an interview
 - rename a folder to reflect a candidate's legal name
 - archive a task by setting `status: rejected` or moving the folder out
 
@@ -183,7 +183,7 @@ your agent can write a markdown file, it can run the board.
 - **`no workspace found`** — you're not inside a workspace. Either `cd` into
   one or pass `--path`. Run `hrkit init <dir>` to create a new one.
 - **Port already in use** — `hrkit serve --port 9000`.
-- **Weird state** — delete `<workspace>/.getset/` and rescan.
+- **Weird state** — delete `<workspace>/.hrkit/` and rescan.
 
 ## License
 

@@ -18,12 +18,12 @@ non-trivial PRs or extending the system.
 │  │   └──────┬───────┘  └──────┬───────┘  └──────┬──────┘   │    │
 │  │          │                 │                 │          │    │
 │  │   ┌──────┴─────────────────┴─────────────────┴──────┐   │    │
-│  │   │            SQLite (.getset/getset.db)            │   │    │
+│  │   │            SQLite (.hrkit/hrkit.db)            │   │    │
 │  │   │  source of truth — 14 HR tables + activity log   │   │    │
 │  │   └─────────────────────┬────────────────────────────┘   │    │
 │  │                         │                                │    │
 │  │   ┌─────────────────────┴────────────────────────────┐   │    │
-│  │   │  Folders (.getset/uploads/employee/<id>/...)     │   │    │
+│  │   │  Folders (.hrkit/uploads/employee/<id>/...)     │   │    │
 │  │   │  attachments only — resumes, contracts, payslips │   │    │
 │  │   └──────────────────────────────────────────────────┘   │    │
 │  └─────────────────────────────────────────────────────────┘    │
@@ -136,10 +136,10 @@ data access without registering 44 individual tools.
 Three names exist for backward compatibility with workspaces created before
 the rename to `hrkit`:
 
-- `META_DIR = ".getset"` (workspace metadata directory)
-- `MARKER = "getset.md"` (workspace/department/position marker file)
-- `DB_NAME = "getset.db"` (SQLite filename)
-- `GETSET_ROOT` env var (workspace root override)
+- `META_DIR = ".hrkit"` (workspace metadata directory)
+- `MARKER = "hrkit.md"` (workspace/department/position marker file)
+- `DB_NAME = "hrkit.db"` (SQLite filename)
+- `HRKIT_ROOT` env var (workspace root override)
 
 These are file-format identifiers, NOT brand. Don't rename them — it would
 break existing user data.
@@ -154,4 +154,4 @@ break existing user data.
 | How does the AI agent work? | `hrkit/ai.py` + `hrkit/chat.py` |
 | How does Composio dispatch? | `hrkit/composio_client.py` + `hrkit/integrations/` |
 | Where is the brand resolved? | `hrkit/branding.py` |
-| Where do file uploads land? | `hrkit/uploads.py` → `<workspace>/.getset/uploads/employee/<id>/` |
+| Where do file uploads land? | `hrkit/uploads.py` → `<workspace>/.hrkit/uploads/employee/<id>/` |

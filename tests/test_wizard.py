@@ -185,8 +185,8 @@ def test_step3_persists_module_selection(conn, tmp_path, monkeypatch):
     _ensure_settings_table(conn)
     # Point the workspace finder at an isolated dir so config.json doesn't
     # leak across tests.
-    (tmp_path / "getset.md").write_text("type: workspace\n")
-    monkeypatch.setenv("GETSET_ROOT", str(tmp_path))
+    (tmp_path / "hrkit.md").write_text("type: workspace\n")
+    monkeypatch.setenv("HRKIT_ROOT", str(tmp_path))
 
     h = _FakeHandler(conn)
     wizard.handle_wizard_step(h, {

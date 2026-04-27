@@ -3,7 +3,7 @@
 Wave 4 Agent A5 deliverable. Provides:
 
 * :func:`parse_multipart` — stdlib-only ``multipart/form-data`` parser.
-* :func:`save_uploaded_file` — write bytes under ``.getset/uploads/employee/<id>/``.
+* :func:`save_uploaded_file` — write bytes under ``.hrkit/uploads/employee/<id>/``.
 * :func:`handle_document_upload` — POST handler for ``/api/m/document/upload``.
 * :func:`serve_uploaded_file` — GET handler for ``/api/m/document/<id>/download``.
 
@@ -214,7 +214,7 @@ def save_uploaded_file(
     (Phase 1.7 — see :mod:`hrkit.employee_fs`). When ``conn`` is supplied we
     look up the employee_code and write under the new layout. If the code
     can't be resolved we fall back to the legacy
-    ``.getset/uploads/employee/<id>/<file>`` location so existing tests and
+    ``.hrkit/uploads/employee/<id>/<file>`` location so existing tests and
     pre-Phase-1.7 callers keep working.
 
     Handles name collisions by appending ``-2``, ``-3``, ... before the
@@ -436,7 +436,7 @@ def save_chat_attachment(
     filename: str,
     data: bytes,
 ) -> dict[str, str | int]:
-    """Save a chat-uploaded file to ``.getset/uploads/chat/<id>/<filename>``.
+    """Save a chat-uploaded file to ``.hrkit/uploads/chat/<id>/<filename>``.
 
     Returns ``{"id": str, "filename": str, "rel_path": str, "size": int}``.
     The id is a short uuid so two uploads with the same filename don't clash.
@@ -482,7 +482,7 @@ def extract_text_for_ai(workspace_root: Path, rel_path: str) -> str:
 
 
 def handle_chat_upload(handler) -> None:
-    """POST /api/chat/upload — accept one file, save under .getset/uploads/chat/."""
+    """POST /api/chat/upload — accept one file, save under .hrkit/uploads/chat/."""
     try:
         parsed = parse_multipart(handler)
     except ValueError as exc:

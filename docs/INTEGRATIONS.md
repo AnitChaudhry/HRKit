@@ -104,7 +104,7 @@ you (and any AI/agent your team uses later) can browse them as files:
     └── messages/<message_id>.{md,json}
 ```
 
-The `.md` files use the same frontmatter format as `getset.md` markers,
+The `.md` files use the same frontmatter format as `hrkit.md` markers,
 so the workspace scanner and any standard markdown reader can parse them.
 Edit them by hand if you want — the next fetch overwrites them with
 fresh data, but only the records that come back are touched (the rest

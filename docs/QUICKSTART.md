@@ -23,8 +23,8 @@ hrkit init "D:\My-HR"      # Windows
 hrkit init ~/my-hr         # mac / Linux
 ```
 
-This creates the folder, a `getset.md` workspace marker, and a hidden
-`.getset/` subdirectory for the SQLite database and config.
+This creates the folder, a `hrkit.md` workspace marker, and a hidden
+`.hrkit/` subdirectory for the SQLite database and config.
 
 ## 3. Start the server
 
@@ -131,9 +131,9 @@ in the workspace folder.
 
 ```
 D:\My-HR\
-├── getset.md                          # workspace marker
-├── .getset\
-│   ├── getset.db                      # SQLite — every structured record
+├── hrkit.md                          # workspace marker
+├── .hrkit\
+│   ├── hrkit.db                      # SQLite — every structured record
 │   └── uploads\                       # legacy upload location
 ├── employees\
 │   └── EMP-001\
