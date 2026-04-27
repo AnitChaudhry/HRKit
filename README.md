@@ -349,10 +349,10 @@ HR-Kit is **dual-licensed**:
   forks must stay open and credit upstream.
 - **Commercial license** ([COMMERCIAL.md](COMMERCIAL.md)) — buy this if you
   want to embed HR-Kit in a closed-source product, run a SaaS without
-  publishing source, or rebrand HR-Kit for resale. Contact Anit Chaudhry to
+  publishing source, or rebrand HR-Kit for resale. Contact Anit Chaudhary to
   start a conversation.
 
-**"HR-Kit" is a trademark of Anit Chaudhry.** The AGPL covers the *code*; the
+**"HR-Kit" is a trademark of Anit Chaudhary.** The AGPL covers the *code*; the
 trademark policy in [TRADEMARK.md](TRADEMARK.md) covers the *name*. You may
 not rebrand a derivative work as HR-Kit, register a confusingly-similar
 name, or use the HR-Kit logo on your own product without prior written
@@ -363,7 +363,7 @@ permission. (Honest references — "compatible with HR-Kit", "fork of HR-Kit"
 > only to v1.1.0 and later. Anyone who downloaded the MIT tarballs keeps
 > those rights forever.
 
-Copyright © 2026 **Anit Chaudhry**. All rights reserved where not
+Copyright © 2026 **Anit Chaudhary**. All rights reserved where not
 explicitly granted by AGPL or the commercial license.
 
 ---

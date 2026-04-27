@@ -80,7 +80,7 @@ function CtaFooter() {
 
       <div className="mt-32 pt-8 border-t border-white/10 flex flex-col md:flex-row justify-between items-center gap-3 max-w-7xl mx-auto px-8 w-full relative z-10">
         <div className="text-white/40 text-xs font-body text-center md:text-left">
-          © 2026 <strong className="text-white/60">Anit Chaudhry</strong> · AGPL-3.0
+          © 2026 <strong className="text-white/60">Anit Chaudhary</strong> · AGPL-3.0
           {' · '}<a
             href="https://github.com/AnitChaudhry/HRKit/blob/main/COMMERCIAL.md"
             target="_blank"

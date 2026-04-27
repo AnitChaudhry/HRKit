@@ -23,7 +23,7 @@ HR-Kit is dual-licensed:
 
 ## How it works
 
-A commercial license is a private agreement between you and Anit Chaudhry
+A commercial license is a private agreement between you and Anit Chaudhary
 (the Owner). Pricing is per-deployment / per-revenue-tier and is negotiated
 case by case — there's no public price list yet because the agreement is
 shaped by what you need to do.
@@ -42,7 +42,7 @@ What every commercial license includes:
 
 ## How to ask
 
-Email Anit Chaudhry — contact details on the
+Email Anit Chaudhary — contact details on the
 [GitHub profile](https://github.com/AnitChaudhry) or the repository's
 maintainer page. Include a one-paragraph description of what you want to
 do with HR-Kit and what scale (rough headcount, region, whether SaaS or
@@ -65,4 +65,4 @@ and later. If you've stayed on 1.0.0 you don't need a commercial license,
 but you also don't get newer features unless you upgrade — at which point
 the AGPL terms (or this commercial license) apply.
 
-— Anit Chaudhry, Owner
+— Anit Chaudhary, Owner

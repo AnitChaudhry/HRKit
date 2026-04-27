@@ -27,7 +27,7 @@
     "directory": "cli"
   },
   "license": "AGPL-3.0-only",
-  "author": "Anit Chaudhry",
+  "author": "Anit Chaudhary",
   "type": "commonjs",
   "main": "lib/index.js",
   "bin": {

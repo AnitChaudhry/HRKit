@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "AGPL-3.0-only" }
 authors = [
-    { name = "Anit Chaudhry", email = "tools@openanalyst.com" },
+    { name = "Anit Chaudhary", email = "tools@openanalyst.com" },
 ]
 keywords = ["hr", "kanban", "sqlite", "byok", "pydantic-ai", "local-first", "agpl"]
 classifiers = [

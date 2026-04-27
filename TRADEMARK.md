@@ -1,7 +1,7 @@
 # HR-Kit Trademark Policy
 
 **"HR-Kit"**, the HR-Kit logo, and any visual identity, wordmark, or trade dress
-associated with the HR-Kit project are trademarks of **Anit Chaudhry** (the
+associated with the HR-Kit project are trademarks of **Anit Chaudhary** (the
 "Owner"), used in connection with the software at
 <https://github.com/AnitChaudhry/HRKit>.
 
@@ -42,7 +42,7 @@ Trademark rights are governed by this document and applicable trademark law.
 
 ## How to ask
 
-If your use case falls outside the "MAY do" list, write to **Anit Chaudhry**
+If your use case falls outside the "MAY do" list, write to **Anit Chaudhary**
 at the contact email listed in the GitHub profile or repository, describing
 what you want to do. Many requests are granted; some require a paid
 commercial license (see [COMMERCIAL.md](COMMERCIAL.md)).
@@ -57,4 +57,4 @@ This policy may be updated from time to time. The version applicable to your
 use is the one in effect on the date you began using the HR-Kit name in the
 manner in question.
 
-— Anit Chaudhry, Owner
+— Anit Chaudhary, Owner
