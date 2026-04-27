@@ -55,8 +55,8 @@ function CtaFooter() {
           Your HR stack, on your terms.
         </h2>
         <p className="text-white/60 font-body font-light text-sm md:text-base max-w-xl">
-          Install once. Run forever. Bring your own AI key. Brand it as your
-          own. Your data never leaves your laptop.
+          Install once. Run forever. Bring your own AI key. Open source under
+          AGPL-3.0 — your data never leaves your laptop.
         </p>
         <div className="flex flex-wrap justify-center gap-3">
           <a
@@ -78,9 +78,21 @@ function CtaFooter() {
         </div>
       </div>
 
-      <div className="mt-32 pt-8 border-t border-white/10 flex justify-between items-center max-w-7xl mx-auto px-8 w-full relative z-10">
-        <div className="text-white/40 text-xs font-body">
-          © 2026 HR-Kit contributors · MIT License
+      <div className="mt-32 pt-8 border-t border-white/10 flex flex-col md:flex-row justify-between items-center gap-3 max-w-7xl mx-auto px-8 w-full relative z-10">
+        <div className="text-white/40 text-xs font-body text-center md:text-left">
+          © 2026 <strong className="text-white/60">Anit Chaudhry</strong> · AGPL-3.0
+          {' · '}<a
+            href="https://github.com/AnitChaudhry/HRKit/blob/main/COMMERCIAL.md"
+            target="_blank"
+            rel="noreferrer"
+            className="text-white/60 hover:text-white"
+          >Commercial license</a>
+          {' · '}<a
+            href="https://github.com/AnitChaudhry/HRKit/blob/main/TRADEMARK.md"
+            target="_blank"
+            rel="noreferrer"
+            className="text-white/60 hover:text-white"
+          >Trademark</a>
         </div>
         <div className="flex gap-6 text-white/40 text-xs font-body">
           <a href="https://github.com/AnitChaudhry/HRKit" target="_blank" rel="noreferrer">GitHub</a>

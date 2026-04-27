@@ -1,6 +1,6 @@
 {
   "name": "@thinqmesh/hrkit",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Local, white-label, AI-augmented HR app. One Python package, one SQLite file, no SaaS. This npm wrapper bootstraps and runs HR-Kit so users who only know npm can `npx @thinqmesh/hrkit serve`.",
   "keywords": [
     "hr",
@@ -26,8 +26,8 @@
     "url": "https://github.com/AnitChaudhry/HRKit.git",
     "directory": "cli"
   },
-  "license": "MIT",
-  "author": "HR-Kit contributors",
+  "license": "AGPL-3.0-only",
+  "author": "Anit Chaudhry",
   "type": "commonjs",
   "main": "lib/index.js",
   "bin": {

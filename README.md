@@ -338,10 +338,33 @@ your install.
 
 ---
 
-## License
+## License & Trademark
 
-MIT. See `pyproject.toml` for the canonical license declaration. You may
-fork, rebrand, and redistribute under your own `APP_NAME`.
+HR-Kit is **dual-licensed**:
+
+- **AGPL-3.0** ([LICENSE](LICENSE)) for everyone. Free for personal,
+  internal, and commercial use as long as you comply with copyleft —
+  if you modify the source or host HR-Kit as a public service, you must
+  publish your source under AGPL too. Cloning and extending is encouraged;
+  forks must stay open and credit upstream.
+- **Commercial license** ([COMMERCIAL.md](COMMERCIAL.md)) — buy this if you
+  want to embed HR-Kit in a closed-source product, run a SaaS without
+  publishing source, or rebrand HR-Kit for resale. Contact Anit Chaudhry to
+  start a conversation.
+
+**"HR-Kit" is a trademark of Anit Chaudhry.** The AGPL covers the *code*; the
+trademark policy in [TRADEMARK.md](TRADEMARK.md) covers the *name*. You may
+not rebrand a derivative work as HR-Kit, register a confusingly-similar
+name, or use the HR-Kit logo on your own product without prior written
+permission. (Honest references — "compatible with HR-Kit", "fork of HR-Kit"
+— are always fine.)
+
+> **Already on v1.0.0 (MIT)?** That release stays MIT — the relicense applies
+> only to v1.1.0 and later. Anyone who downloaded the MIT tarballs keeps
+> those rights forever.
+
+Copyright © 2026 **Anit Chaudhry**. All rights reserved where not
+explicitly granted by AGPL or the commercial license.
 
 ---
 

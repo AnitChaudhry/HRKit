@@ -7,13 +7,15 @@ This file follows the [llms.txt](https://llmstxt.org/) extended convention so AI
 ## Project metadata
 
 - **Name:** HR-Kit (Python package and CLI binary: `hrkit`)
-- **License:** MIT
+- **License:** AGPL-3.0-only (v1.1.0 onwards). v1.0.0 and earlier remain MIT for anyone who downloaded those tarballs.
+- **Trademark:** "HR-Kit" is a trademark of Anit Chaudhry — see TRADEMARK.md for use restrictions.
+- **Commercial license:** Available for closed-source / SaaS-without-source / rebrand use cases. See COMMERCIAL.md.
 - **Repository:** https://github.com/AnitChaudhry/HRKit
 - **Website:** https://anitchaudhry.github.io/HRKit/
 - **PyPI:** https://pypi.org/project/hrkit/  (install: `pip install hrkit`)
 - **npm:** https://www.npmjs.com/package/@thinqmesh/hrkit  (install: `npx @thinqmesh/hrkit serve`)
-- **Status:** Beta (v0.2.1 as of 2026-04)
-- **Maintainer:** ThinqMesh (https://thinqmesh.com)
+- **Status:** Stable (v1.1.0 as of 2026-04)
+- **Owner / maintainer:** Anit Chaudhry (https://github.com/AnitChaudhry)
 - **Stack:** Python 3.10+ · SQLite · stdlib HTTP server · React 18 + Vite + Tailwind for marketing site
 - **Hard dependencies:** `pydantic-ai-slim[openai]>=1.0`, `composio>=1.0.0rc2`
 

@@ -1,0 +1,21 @@
+HR-Kit
+Copyright (c) 2026 Anit Chaudhry
+
+This program is free software: you can redistribute it and/or modify it
+under the terms of the GNU Affero General Public License v3.0 as published
+by the Free Software Foundation. The full license text is in LICENSE.
+
+"HR-Kit", the HR-Kit logo, and the project's visual identity are trademarks
+of Anit Chaudhry. The AGPL-3.0 license covers the source code only; trademark
+use is governed separately by TRADEMARK.md. Forks must rename if they modify
+the code in user-visible ways.
+
+A commercial license that exempts buyers from AGPL's copyleft (closed-source
+distribution, SaaS without source publication, rebranding rights, etc.) is
+available on request — see COMMERCIAL.md.
+
+Versions before 1.1.0 (specifically 0.2.x and 1.0.0) were released under the
+MIT license and remain available under those terms for anyone who downloaded
+those tarballs. The relicense to AGPL-3.0 applies to versions 1.1.0 and later.
+
+Project home: https://github.com/AnitChaudhry/HRKit

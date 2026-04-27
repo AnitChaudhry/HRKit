@@ -8,16 +8,16 @@ version = "1.1.0"
 description = "Local-first HR app with BYOK AI agent loop and SQLite-backed modules."
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "MIT" }
+license = { text = "AGPL-3.0-only" }
 authors = [
-    { name = "Thinqmesh", email = "tools@openanalyst.com" },
+    { name = "Anit Chaudhry", email = "tools@openanalyst.com" },
 ]
-keywords = ["hr", "kanban", "sqlite", "byok", "pydantic-ai", "local-first"]
+keywords = ["hr", "kanban", "sqlite", "byok", "pydantic-ai", "local-first", "agpl"]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Environment :: Console",
     "Intended Audience :: End Users/Desktop",
-    "License :: OSI Approved :: MIT License",
+    "License :: OSI Approved :: GNU Affero General Public License v3",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",

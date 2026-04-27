@@ -69,8 +69,9 @@ export function Hero() {
           transition={{ delay: 0.8, duration: 0.6 }}
           className="text-sm md:text-base text-white font-body font-light leading-tight mt-6 max-w-xl"
         >
-          All your HR data on your machine. Bring your own AI key. White-label
-          your brand. Open source under MIT.
+          All your HR data on your machine. Bring your own AI key. Open
+          source under AGPL-3.0 — commercial license available for
+          closed-source or SaaS use.
         </motion.p>
 
         {/* CTA buttons */}
