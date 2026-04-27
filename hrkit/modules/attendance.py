@@ -227,6 +227,10 @@ def _render_body(handler) -> str:
     toolbar = (
         "<div class='module-toolbar'>"
         "<h1>Attendance</h1>"
+        "<a href='/m/attendance/heatmap' "
+        "   style='padding:7px 14px;border:1px solid var(--border);"
+        "   border-radius:6px;color:var(--dim);text-decoration:none;font-size:13px'>"
+        "  Heatmap overview</a>"
         "<form class='module-filter' method='get' action='/m/attendance/'>"
         f"  <input name='employee_id' type='number' placeholder='Employee id' "
         f"         value='{_esc(emp_q)}'>"
@@ -309,6 +313,394 @@ def list_view(handler) -> None:
         return
     handler._html(200, render_module_page(
         title=LABEL, nav_active=NAME, body_html=body,
+    ))
+
+
+# ---------------------------------------------------------------------------
+# Heatmap dashboard ("Claude session"–style overview)
+# ---------------------------------------------------------------------------
+_RANGE_OPTIONS: tuple[tuple[str, str, int | None], ...] = (
+    ("all",  "All",   None),
+    ("30d",  "30d",   30),
+    ("7d",   "7d",    7),
+)
+_VIEW_OPTIONS: tuple[tuple[str, str], ...] = (
+    ("overview", "Overview"),
+    ("per_employee", "Per-employee"),
+)
+_DAY_LABELS: tuple[str, ...] = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+
+
+def _coerce_range(range_key: str) -> tuple[str, str, int | None]:
+    """Resolve a range query-string param to (key, label, days)."""
+    rk = (range_key or "30d").lower().strip()
+    for key, label, days in _RANGE_OPTIONS:
+        if key == rk:
+            return key, label, days
+    return ("30d", "30d", 30)
+
+
+def _date_floor_sql(days: int | None, *, column: str = "date") -> tuple[str, list[Any]]:
+    """Return (sql_clause, params) for ``<column> >= floor`` filters.
+
+    ``column`` lets callers pass an aliased column (e.g. ``a.date``) without
+    having to string-rewrite the result, which would also touch the
+    ``date('now', ...)`` SQL function call.
+    """
+    if days is None:
+        return "", []
+    return (f"AND {column} >= date('now', ?, '+05:30')",
+            [f"-{int(days)} days"])
+
+
+def _collect_heatmap_kpis(conn: sqlite3.Connection,
+                           days: int | None) -> dict[str, Any]:
+    """Compute the 8 KPI values for the dashboard top tiles."""
+    floor_clause, floor_params = _date_floor_sql(days)
+    kpis: dict[str, Any] = {
+        "checkins": 0, "avg_hours": 0.0, "active_days": 0,
+        "current_streak": 0, "longest_streak": 0,
+        "peak_hour": "—", "top_employee": "—", "holidays": 0,
+    }
+
+    # Total check-ins (rows with a non-empty check_in).
+    row = conn.execute(
+        f"SELECT COUNT(*) AS n FROM attendance "
+        f"WHERE check_in <> '' {floor_clause}", floor_params,
+    ).fetchone()
+    kpis["checkins"] = int(row["n"]) if row else 0
+
+    # Avg hours per active day.
+    row = conn.execute(
+        f"SELECT AVG(hours_minor) AS m FROM attendance "
+        f"WHERE hours_minor > 0 {floor_clause}", floor_params,
+    ).fetchone()
+    avg_minutes = float(row["m"] or 0) if row else 0.0
+    kpis["avg_hours"] = round(avg_minutes / 60.0, 1)
+
+    # Distinct active days in range.
+    row = conn.execute(
+        f"SELECT COUNT(DISTINCT date) AS n FROM attendance "
+        f"WHERE check_in <> '' {floor_clause}", floor_params,
+    ).fetchone()
+    kpis["active_days"] = int(row["n"]) if row else 0
+
+    # Current + longest streak across distinct active days.
+    days_active = [
+        r["date"] for r in conn.execute(
+            f"SELECT DISTINCT date FROM attendance "
+            f"WHERE check_in <> '' {floor_clause} ORDER BY date DESC",
+            floor_params,
+        ).fetchall()
+    ]
+    kpis["current_streak"] = _streak_from_today(days_active)
+    kpis["longest_streak"] = _longest_streak(sorted(days_active))
+
+    # Peak hour: most frequent integer hour in check_in (HH:MM).
+    row = conn.execute(
+        f"SELECT substr(check_in, 1, 2) AS hh, COUNT(*) AS n "
+        f"FROM attendance WHERE check_in <> '' {floor_clause} "
+        f"GROUP BY hh ORDER BY n DESC LIMIT 1", floor_params,
+    ).fetchone()
+    if row and row["hh"]:
+        try:
+            h = int(row["hh"])
+            suffix = "AM" if h < 12 else "PM"
+            display_h = h if 1 <= h <= 12 else (h - 12 if h > 12 else 12)
+            kpis["peak_hour"] = f"{display_h} {suffix}"
+        except (TypeError, ValueError):
+            kpis["peak_hour"] = row["hh"]
+
+    # Top employee: name with most check-ins in range. Reuse helper with
+    # the aliased column so we don't string-rewrite the SQL clause.
+    a_floor_clause, a_floor_params = _date_floor_sql(days, column="a.date")
+    row = conn.execute(
+        f"SELECT e.full_name AS name, COUNT(*) AS n "
+        f"FROM attendance a JOIN employee e ON e.id = a.employee_id "
+        f"WHERE a.check_in <> '' {a_floor_clause} "
+        f"GROUP BY a.employee_id ORDER BY n DESC LIMIT 1", a_floor_params,
+    ).fetchone()
+    if row and row["name"]:
+        kpis["top_employee"] = str(row["name"])
+
+    # Holidays in range (the table exists from the v1.1 schema).
+    try:
+        row = conn.execute(
+            f"SELECT COUNT(*) AS n FROM holiday WHERE 1=1 {floor_clause}",
+            floor_params,
+        ).fetchone()
+        kpis["holidays"] = int(row["n"]) if row else 0
+    except sqlite3.Error:
+        kpis["holidays"] = 0
+
+    return kpis
+
+
+def _streak_from_today(dates_desc: list[str]) -> int:
+    """Count consecutive days from today backward that appear in ``dates_desc``."""
+    if not dates_desc:
+        return 0
+    from datetime import date, timedelta
+    today = date.today()
+    seen = set(dates_desc)
+    streak = 0
+    cursor = today
+    while cursor.isoformat() in seen:
+        streak += 1
+        cursor = cursor - timedelta(days=1)
+    return streak
+
+
+def _longest_streak(dates_asc: list[str]) -> int:
+    """Longest run of consecutive days within a sorted-ascending list."""
+    if not dates_asc:
+        return 0
+    from datetime import date, timedelta
+    longest = 1
+    run = 1
+    prev = date.fromisoformat(dates_asc[0][:10])
+    for d in dates_asc[1:]:
+        try:
+            cur = date.fromisoformat(d[:10])
+        except ValueError:
+            continue
+        if cur - prev == timedelta(days=1):
+            run += 1
+            longest = max(longest, run)
+        elif cur != prev:
+            run = 1
+        prev = cur
+    return longest
+
+
+def _build_overview_matrix(
+        conn: sqlite3.Connection, days: int | None
+) -> tuple[list[str], list[str], list[list[int]]]:
+    """7-row × N-column matrix: rows = weekday Mon..Sun, cols = week-of-year."""
+    floor_clause, floor_params = _date_floor_sql(days)
+    rows = conn.execute(
+        f"SELECT date, COUNT(*) AS n FROM attendance "
+        f"WHERE check_in <> '' {floor_clause} GROUP BY date ORDER BY date",
+        floor_params,
+    ).fetchall()
+    if not rows:
+        return list(_DAY_LABELS), [], [[0] * 0 for _ in range(7)]
+
+    from datetime import date, timedelta
+    parsed: list[tuple[date, int]] = []
+    for r in rows:
+        try:
+            parsed.append((date.fromisoformat(r["date"][:10]), int(r["n"])))
+        except (TypeError, ValueError):
+            continue
+    if not parsed:
+        return list(_DAY_LABELS), [], [[0] * 0 for _ in range(7)]
+
+    first = parsed[0][0]
+    last = parsed[-1][0]
+    # Anchor on the Monday of the first observed week.
+    start = first - timedelta(days=first.weekday())
+    weeks: list[date] = []
+    cursor = start
+    while cursor <= last:
+        weeks.append(cursor)
+        cursor = cursor + timedelta(days=7)
+    n_weeks = len(weeks) or 1
+
+    counts: dict[date, int] = {d: n for d, n in parsed}
+    matrix: list[list[int]] = [[0] * n_weeks for _ in range(7)]
+    for weekday in range(7):
+        for w_idx, week_start in enumerate(weeks):
+            cell_date = week_start + timedelta(days=weekday)
+            matrix[weekday][w_idx] = counts.get(cell_date, 0)
+    col_labels = [w.strftime("%b %d") if (w.day <= 7 or w == weeks[0]) else ""
+                  for w in weeks]
+    return list(_DAY_LABELS), col_labels, matrix
+
+
+def _build_per_employee_matrix(
+        conn: sqlite3.Connection, days: int | None, max_rows: int = 30
+) -> tuple[list[str], list[str], list[list[int]]]:
+    """Rows = top-N employees by activity, cols = days in the range
+    (most recent on the right). Cell value = minutes worked that day."""
+    floor_clause, floor_params = _date_floor_sql(days)
+    a_floor_clause, a_floor_params = _date_floor_sql(days, column="a.date")
+    rows = conn.execute(
+        f"SELECT a.employee_id, e.full_name, a.date, COALESCE(a.hours_minor, 0) AS m "
+        f"FROM attendance a JOIN employee e ON e.id = a.employee_id "
+        f"WHERE a.check_in <> '' {a_floor_clause} "
+        f"ORDER BY a.date",
+        a_floor_params,
+    ).fetchall()
+    if not rows:
+        return [], [], []
+
+    from datetime import date, timedelta
+    by_emp: dict[int, dict[str, int]] = {}
+    names: dict[int, str] = {}
+    dates_seen: set[date] = set()
+    for r in rows:
+        emp_id = int(r["employee_id"])
+        try:
+            d = date.fromisoformat(r["date"][:10])
+        except (TypeError, ValueError):
+            continue
+        names[emp_id] = str(r["full_name"] or f"#{emp_id}")
+        by_emp.setdefault(emp_id, {})[d.isoformat()] = int(r["m"])
+        dates_seen.add(d)
+
+    if not dates_seen:
+        return [], [], []
+
+    first = min(dates_seen)
+    last = max(dates_seen)
+    # Build a contiguous date axis from first..last for visual continuity.
+    all_dates: list[date] = []
+    cursor = first
+    while cursor <= last:
+        all_dates.append(cursor)
+        cursor = cursor + timedelta(days=1)
+    col_labels = [d.strftime("%d") if d.day != 1 else d.strftime("%b %d")
+                  for d in all_dates]
+
+    # Pick the top-N employees by total minutes in range.
+    totals = sorted(
+        ((emp_id, sum(by_emp[emp_id].values())) for emp_id in by_emp),
+        key=lambda t: t[1], reverse=True,
+    )[:max_rows]
+
+    matrix: list[list[int]] = []
+    row_labels: list[str] = []
+    for emp_id, _total in totals:
+        row_labels.append(names[emp_id])
+        emp_days = by_emp[emp_id]
+        matrix.append([emp_days.get(d.isoformat(), 0) for d in all_dates])
+    return row_labels, col_labels, matrix
+
+
+def _fun_fact(kpis: dict[str, Any], days: int | None) -> str:
+    """A small HR-flavored footer line, picked deterministically from the
+    KPIs so it changes as the data does."""
+    checkins = int(kpis.get("checkins") or 0)
+    avg = float(kpis.get("avg_hours") or 0)
+    longest = int(kpis.get("longest_streak") or 0)
+    if checkins == 0:
+        return "No check-ins recorded yet — once your team starts logging time, this dashboard fills in."
+    if longest >= 14:
+        return f"Longest streak is {longest} consecutive days — someone needs a break."
+    if avg >= 9.5:
+        return f"Average day is {avg} hours — that's a long workday across {checkins} check-ins."
+    if avg and avg < 6:
+        return f"Average day is {avg} hours — light workdays across {checkins} check-ins."
+    return f"{checkins} check-ins logged" + (
+        f" over the last {days} days." if days else " across the full history.")
+
+
+def heatmap_view(handler) -> None:
+    """GET /m/attendance/heatmap — Claude-session-style overview dashboard."""
+    from hrkit.templates import (
+        render_module_page, render_stat_grid, render_heatmap,
+    )
+
+    conn = _conn(handler)
+    range_key, range_label, days = _coerce_range(_query_param(handler, "range", "30d"))
+    view_key = _query_param(handler, "view", "overview")
+    if view_key not in {k for k, _ in _VIEW_OPTIONS}:
+        view_key = "overview"
+
+    kpis = _collect_heatmap_kpis(conn, days)
+    overview_rows, overview_cols, overview_matrix = _build_overview_matrix(conn, days)
+    pe_rows, pe_cols, pe_matrix = _build_per_employee_matrix(conn, days)
+
+    stat_specs = [
+        {"label": "Check-ins", "value": kpis["checkins"]},
+        {"label": "Avg hours / day", "value": kpis["avg_hours"]},
+        {"label": "Active days", "value": kpis["active_days"]},
+        {"label": "Holidays", "value": kpis["holidays"]},
+        {"label": "Current streak", "value": f'{kpis["current_streak"]}d'},
+        {"label": "Longest streak", "value": f'{kpis["longest_streak"]}d'},
+        {"label": "Peak hour", "value": kpis["peak_hour"]},
+        {"label": "Top employee", "value": kpis["top_employee"]},
+    ]
+    stat_grid_html = render_stat_grid(stat_specs)
+
+    overview_html = render_heatmap(
+        row_labels=overview_rows, col_labels=overview_cols,
+        values=overview_matrix, row_label_header="Day",
+        legend_label="check-ins",
+    ) if overview_matrix and overview_matrix[0] else (
+        '<div class="att-empty">No attendance data in this range.</div>'
+    )
+
+    pe_html = render_heatmap(
+        row_labels=pe_rows, col_labels=pe_cols, values=pe_matrix,
+        row_label_header="Employee",
+        legend_label="minutes",
+    ) if pe_matrix else (
+        '<div class="att-empty">No employee activity in this range.</div>'
+    )
+
+    range_pills = "".join(
+        f'<a class="att-pill{" is-on" if k == range_key else ""}" '
+        f'href="?view={_esc(view_key)}&range={k}">{_esc(label)}</a>'
+        for k, label, _d in _RANGE_OPTIONS
+    )
+    tabs = "".join(
+        f'<a class="att-tab{" is-on" if k == view_key else ""}" '
+        f'href="?view={k}&range={range_key}">{_esc(label)}</a>'
+        for k, label in _VIEW_OPTIONS
+    )
+
+    body = f"""
+<style>
+  .att-card{{background:var(--panel);border:1px solid var(--border);
+    border-radius:14px;padding:18px;margin-bottom:18px;box-shadow:var(--shadow-sm)}}
+  .att-bar{{display:flex;align-items:center;gap:8px;margin-bottom:14px}}
+  .att-bar .att-tabs{{display:flex;gap:4px;background:var(--row-hover);
+    border-radius:10px;padding:4px}}
+  .att-tab{{padding:6px 14px;border-radius:8px;color:var(--dim);
+    text-decoration:none;font-size:13px;font-weight:500}}
+  .att-tab.is-on{{background:var(--panel);color:var(--text);
+    box-shadow:var(--shadow-sm)}}
+  .att-bar .att-spacer{{flex:1}}
+  .att-pills{{display:flex;gap:4px;background:var(--row-hover);
+    border-radius:10px;padding:4px}}
+  .att-pill{{padding:6px 14px;border-radius:8px;color:var(--dim);
+    text-decoration:none;font-size:12.5px;font-weight:500}}
+  .att-pill.is-on{{background:var(--panel);color:var(--text);
+    box-shadow:var(--shadow-sm)}}
+  .att-card .stat-grid{{margin:0 0 14px}}
+  /* Larger, rounded heatmap cells per the Claude-session design. */
+  .att-card .heatmap-table td{{width:18px;height:18px;border-radius:4px}}
+  .att-card .heatmap-table{{border-spacing:4px}}
+  .att-fact{{color:var(--dim);font-size:12.5px;margin:14px 2px 0}}
+  .att-empty{{padding:30px;text-align:center;color:var(--dim);
+    border:1px dashed var(--border);border-radius:10px;font-size:13px}}
+  .att-toolbar{{display:flex;align-items:center;gap:12px;margin-bottom:14px}}
+  .att-toolbar h1{{margin:0;font-size:22px;font-weight:600;color:var(--text)}}
+  .att-toolbar a.list-link{{margin-left:auto;padding:6px 12px;border-radius:6px;
+    color:var(--dim);text-decoration:none;font-size:13px;border:1px solid var(--border)}}
+  .att-toolbar a.list-link:hover{{color:var(--text);border-color:var(--accent)}}
+</style>
+<div class="att-toolbar">
+  <h1>Attendance overview</h1>
+  <a class="list-link" href="/m/attendance">Day-by-day list</a>
+</div>
+<div class="att-card">
+  <div class="att-bar">
+    <div class="att-tabs">{tabs}</div>
+    <span class="att-spacer"></span>
+    <div class="att-pills">{range_pills}</div>
+  </div>
+  {stat_grid_html}
+  <div class="att-heatmap-wrap" data-view="{_esc(view_key)}">
+    {overview_html if view_key == "overview" else pe_html}
+  </div>
+  <div class="att-fact">{_esc(_fun_fact(kpis, days))}</div>
+</div>
+"""
+    handler._html(200, render_module_page(
+        title="Attendance overview", nav_active=NAME, body_html=body,
     ))
 
 
@@ -454,6 +846,7 @@ def delete_api(handler, item_id: int) -> None:
 ROUTES = {
     "GET": [
         (r"^/api/m/attendance/(\d+)/?$",    detail_api_json),
+        (r"^/m/attendance/heatmap/?$",  heatmap_view),
         (r"^/m/attendance/?$",          list_view),
         (r"^/m/attendance/(\d+)/?$",    detail_view),
     ],
