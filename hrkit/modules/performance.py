@@ -294,14 +294,14 @@ def _render_list(reviews: list[dict[str, Any]], emp_options: str) -> str:
         "async function submitCreate(e){e.preventDefault();"
         "var f=new FormData(e.target);"
         "var rj=(f.get('rubric_json')||'').trim()||'{}';"
-        "try{JSON.parse(rj);}catch(err){alert('Rubric JSON invalid');return;}"
+        "try{JSON.parse(rj);}catch(err){hrkit.toast('Rubric JSON invalid', 'error');return;}"
         "var body={employee_id:Number(f.get('employee_id')),"
         "cycle:f.get('cycle'),"
         "reviewer_id:f.get('reviewer_id')?Number(f.get('reviewer_id')):null,"
         "rubric_json:rj,comments:f.get('comments')||''};"
         "var r=await fetch('/api/m/performance',{method:'POST',"
         "headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});"
-        "if(r.ok){location.reload();}else{var t=await r.text();alert('Save failed: '+t);}}"
+        "if(r.ok){location.reload();}else{var t=await r.text();hrkit.toast('Save failed: '+t, 'error');}}"
         "</script>"
     )
 
@@ -348,7 +348,7 @@ def _render_detail(review: dict[str, Any]) -> str:
         "<script>"
         "async function advance(id,target){"
         "var r=await fetch('/api/m/performance/'+id+'/'+target,{method:'POST'});"
-        "if(r.ok){location.reload();}else{var t=await r.text();alert('Failed: '+t);}}"
+        "if(r.ok){location.reload();}else{var t=await r.text();hrkit.toast('Failed: '+t, 'error');}}"
         "</script>"
     )
 
@@ -445,14 +445,14 @@ def detail_view(handler, item_id: int) -> None:
         actions_html = (
             f"<button onclick=\"fetch('/api/m/performance/{rid}/submitted',"
             f"{{method:'POST'}}).then(r=>r.ok?location.reload():"
-            f"r.text().then(t=>alert('Submit failed: '+t)))\""
+            f"r.text().then(t=>hrkit.toast('Submit failed: '+t, 'error')))\""
             f">Submit</button>"
         )
     elif status == "submitted":
         actions_html = (
             f"<button onclick=\"fetch('/api/m/performance/{rid}/acknowledged',"
             f"{{method:'POST'}}).then(r=>r.ok?location.reload():"
-            f"r.text().then(t=>alert('Acknowledge failed: '+t)))\""
+            f"r.text().then(t=>hrkit.toast('Acknowledge failed: '+t, 'error')))\""
             f">Acknowledge</button>"
         )
 

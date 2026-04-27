@@ -209,12 +209,12 @@ async function submitCreate(ev) {{
     method: 'POST', headers: {{'Content-Type': 'application/json'}},
     body: JSON.stringify(Object.fromEntries(fd.entries())),
   }});
-  if (r.ok) location.reload(); else alert('Save failed: ' + await r.text());
+  if (r.ok) location.reload(); else hrkit.toast('Save failed: ' + await r.text(), 'error');
 }}
 async function deleteRow(id) {{
-  if (!confirm('Delete?')) return;
+  if (!(await hrkit.confirmDialog('Delete?'))) return;
   const r = await fetch('/api/m/salary_advance/' + id, {{method: 'DELETE'}});
-  if (r.ok) location.reload(); else alert('Delete failed');
+  if (r.ok) location.reload(); else hrkit.toast('Delete failed', 'error');
 }}
 </script>
 """

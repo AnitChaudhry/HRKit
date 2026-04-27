@@ -124,12 +124,12 @@ async function approve(id) {{
     method: 'POST', headers: {{'Content-Type': 'application/json'}},
     body: JSON.stringify({{approver_id: 1}})
   }});
-  if (r.ok) location.reload(); else alert('Approve failed');
+  if (r.ok) location.reload(); else hrkit.toast('Approve failed', 'error');
 }}
 async function del(id) {{
-  if (!confirm('Delete entry?')) return;
+  if (!(await hrkit.confirmDialog('Delete entry?'))) return;
   const r = await fetch('/api/m/timesheet/' + id, {{method: 'DELETE'}});
-  if (r.ok) location.reload(); else alert('Delete failed');
+  if (r.ok) location.reload(); else hrkit.toast('Delete failed', 'error');
 }}
 </script>
 """

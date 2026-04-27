@@ -402,9 +402,9 @@ form.addEventListener('submit', async (ev) => {{
   }}
 }});
 async function dropTable(name) {{
-  if (!confirm(`Drop table ${{name}}? This deletes all imported rows.`)) return;
+  if (!(await hrkit.confirmDialog(`Drop table ${{name}}? This deletes all imported rows.`))) return;
   const r = await fetch('/api/m/csv_import/' + encodeURIComponent(name), {{method: 'DELETE'}});
-  if (r.ok) location.reload(); else alert('Drop failed');
+  if (r.ok) location.reload(); else hrkit.toast('Drop failed', 'error');
 }}
 </script>
 """

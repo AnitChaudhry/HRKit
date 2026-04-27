@@ -384,12 +384,12 @@ async function submitCreate(ev) {{
     method: 'POST', headers: {{'Content-Type': 'application/json'}},
     body: JSON.stringify(payload),
   }});
-  if (r.ok) location.reload(); else alert('Save failed: ' + await r.text());
+  if (r.ok) location.reload(); else hrkit.toast('Save failed: ' + await r.text(), 'error');
 }}
 async function deleteRow(id) {{
-  if (!confirm('Delete employee #' + id + '?')) return;
+  if (!(await hrkit.confirmDialog('Delete employee #' + id + '?'))) return;
   const r = await fetch('/api/m/employee/' + id, {{method: 'DELETE'}});
-  if (r.ok) location.reload(); else alert('Delete failed');
+  if (r.ok) location.reload(); else hrkit.toast('Delete failed', 'error');
 }}
 </script>
 """
@@ -522,7 +522,7 @@ async function submitDocUpload(ev) {{
   const fd = new FormData(ev.target);
   if (fd.get('expiry_date') === '') fd.delete('expiry_date');
   const r = await fetch('/api/m/document/upload', {{method: 'POST', body: fd}});
-  if (r.ok) location.reload(); else alert('Upload failed: ' + await r.text());
+  if (r.ok) location.reload(); else hrkit.toast('Upload failed: ' + await r.text(), 'error');
 }}
 </script>
 """
@@ -599,8 +599,8 @@ async function saveCustomFields(empId) {{
     method: 'POST', headers: {{'Content-Type': 'application/json'}},
     body: JSON.stringify({{fields}}),
   }});
-  if (r.ok) {{ alert('Custom fields saved'); }}
-  else {{ alert('Save failed: ' + await r.text()); }}
+  if (r.ok) {{ hrkit.toast('Custom fields saved', 'success'); }}
+  else {{ hrkit.toast('Save failed: ' + await r.text(), 'error'); }}
 }}
 </script>
 """
@@ -635,8 +635,8 @@ async function saveNotes(empId) {{
     method: 'POST', headers: {{'Content-Type': 'application/json'}},
     body: JSON.stringify({{body}}),
   }});
-  if (r.ok) {{ alert('Notes saved'); }}
-  else {{ alert('Save failed: ' + await r.text()); }}
+  if (r.ok) {{ hrkit.toast('Notes saved', 'success'); }}
+  else {{ hrkit.toast('Save failed: ' + await r.text(), 'error'); }}
 }}
 </script>
 """
@@ -722,7 +722,7 @@ async function saveAssignment(empId, field, pickerId) {{
   else {{
     let err = 'Update failed';
     try {{ const j = await r.json(); err = j.error || err; }} catch (e) {{}}
-    alert(err);
+    hrkit.toast(err, 'info');
   }}
 }}
 </script>

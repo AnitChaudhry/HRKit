@@ -178,12 +178,12 @@ async function submitCreate(ev) {{
     method: 'POST', headers: {{'Content-Type': 'application/json'}},
     body: JSON.stringify(payload),
   }});
-  if (r.ok) location.reload(); else alert('Save failed: ' + await r.text());
+  if (r.ok) location.reload(); else hrkit.toast('Save failed: ' + await r.text(), 'error');
 }}
 async function deleteRow(id) {{
-  if (!confirm('Delete survey #' + id + '?')) return;
+  if (!(await hrkit.confirmDialog('Delete survey #' + id + '?'))) return;
   const r = await fetch('/api/m/survey/' + id, {{method: 'DELETE'}});
-  if (r.ok) location.reload(); else alert('Delete failed');
+  if (r.ok) location.reload(); else hrkit.toast('Delete failed', 'error');
 }}
 </script>
 """
@@ -247,12 +247,12 @@ async function addQuestion(ev, surveyId) {{
     method: 'POST', headers: {{'Content-Type': 'application/json'}},
     body: JSON.stringify(data),
   }});
-  if (r.ok) location.reload(); else alert('Add failed: ' + await r.text());
+  if (r.ok) location.reload(); else hrkit.toast('Add failed: ' + await r.text(), 'error');
 }}
 async function deleteQ(qid) {{
-  if (!confirm('Delete question?')) return;
+  if (!(await hrkit.confirmDialog('Delete question?'))) return;
   const r = await fetch('/api/m/survey/questions/' + qid, {{method: 'DELETE'}});
-  if (r.ok) location.reload(); else alert('Delete failed');
+  if (r.ok) location.reload(); else hrkit.toast('Delete failed', 'error');
 }}
 </script>
 """
@@ -360,8 +360,8 @@ async function submitResponse(ev, surveyId) {{
     method: 'POST', headers: {{'Content-Type': 'application/json'}},
     body: JSON.stringify({{answers}}),
   }});
-  if (r.ok) {{ alert('Thanks for your response.'); location.href = '/m/survey'; }}
-  else {{ alert('Submit failed: ' + await r.text()); }}
+  if (r.ok) {{ hrkit.toast('Thanks for your response.', 'info'); location.href = '/m/survey'; }}
+  else {{ hrkit.toast('Submit failed: ' + await r.text(), 'error'); }}
 }}
 </script>
 """

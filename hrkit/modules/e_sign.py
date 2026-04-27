@@ -188,12 +188,12 @@ async function submitCreate(ev) {{
     method: 'POST', headers: {{'Content-Type': 'application/json'}},
     body: JSON.stringify(Object.fromEntries(fd.entries())),
   }});
-  if (r.ok) location.reload(); else alert('Save failed: ' + await r.text());
+  if (r.ok) location.reload(); else hrkit.toast('Save failed: ' + await r.text(), 'error');
 }}
 async function deleteRow(id) {{
-  if (!confirm('Delete?')) return;
+  if (!(await hrkit.confirmDialog('Delete?'))) return;
   const r = await fetch('/api/m/e_sign/' + id, {{method: 'DELETE'}});
-  if (r.ok) location.reload(); else alert('Delete failed');
+  if (r.ok) location.reload(); else hrkit.toast('Delete failed', 'error');
 }}
 </script>
 """
@@ -229,21 +229,21 @@ def detail_view(handler, item_id):
 <script>
 async function sendNow(id) {{
   const r = await fetch('/api/m/e_sign/' + id + '/send', {{method: 'POST'}});
-  if (r.ok) location.reload(); else alert('Send failed: ' + await r.text());
+  if (r.ok) location.reload(); else hrkit.toast('Send failed: ' + await r.text(), 'error');
 }}
 async function markSigned(id) {{
   const r = await fetch('/api/m/e_sign/' + id, {{
     method: 'POST', headers: {{'Content-Type': 'application/json'}},
     body: JSON.stringify({{status: 'signed'}})
   }});
-  if (r.ok) location.reload(); else alert('Update failed');
+  if (r.ok) location.reload(); else hrkit.toast('Update failed', 'error');
 }}
 async function markDeclined(id) {{
   const r = await fetch('/api/m/e_sign/' + id, {{
     method: 'POST', headers: {{'Content-Type': 'application/json'}},
     body: JSON.stringify({{status: 'declined'}})
   }});
-  if (r.ok) location.reload(); else alert('Update failed');
+  if (r.ok) location.reload(); else hrkit.toast('Update failed', 'error');
 }}
 </script>
 """

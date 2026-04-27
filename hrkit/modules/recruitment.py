@@ -373,10 +373,10 @@ async function submitCreate(ev) {{
     method: 'POST', headers: {{'Content-Type': 'application/json'}},
     body: JSON.stringify(payload),
   }});
-  if (r.ok) location.reload(); else alert('Save failed: ' + await r.text());
+  if (r.ok) location.reload(); else hrkit.toast('Save failed: ' + await r.text(), 'error');
 }}
 async function pullFromGmail() {{
-  const q = prompt('Gmail search query (Enter for default = label:UNREAD newer_than:14d):');
+  const q = (await hrkit.promptDialog('Gmail search query (Enter for default = label:UNREAD newer_than:14d):'));
   if (q === null) return;
   const body = q.trim() ? {{query: q.trim()}} : {{}};
   const r = await fetch('/api/m/recruitment/pull-emails', {{
@@ -385,12 +385,12 @@ async function pullFromGmail() {{
   }});
   const data = await r.json().catch(() => ({{ok: false, error: 'Bad response'}}));
   if (!r.ok || !data.ok) {{
-    alert('Pull failed: ' + (data.error || ('HTTP ' + r.status)));
+    hrkit.toast('Pull failed: ' + (data.error || ('HTTP ' + r.status)), 'error');
     return;
   }}
-  alert('Fetched ' + data.fetched + ' message(s); created ' +
+  hrkit.toast('Fetched ' + data.fetched + ' message(s); created ' +
         (data.created_candidate_ids || []).length + ' candidate(s); skipped ' +
-        (data.skipped_existing || []).length + ' duplicate(s).');
+        (data.skipped_existing || []).length + ' duplicate(s).', 'success');
   location.reload();
 }}
 </script>
@@ -456,17 +456,17 @@ async function moveStatus(s) {{
     method: 'POST', headers: {{'Content-Type': 'application/json'}},
     body: JSON.stringify({{status: s}}),
   }});
-  if (r.ok) location.reload(); else alert('Move failed: ' + await r.text());
+  if (r.ok) location.reload(); else hrkit.toast('Move failed: ' + await r.text(), 'error');
 }}
 async function promote() {{
-  if (!confirm('Convert this candidate to an employee?')) return;
+  if (!(await hrkit.confirmDialog('Convert this candidate to an employee?'))) return;
   const r = await fetch('/api/m/recruitment/{item_id}/promote', {{method: 'POST'}});
   if (r.ok) {{
     const data = await r.json();
-    alert('Created employee #' + data.employee_id);
+    hrkit.toast('Created employee #' + data.employee_id, 'success');
     window.location.href = '/m/employee/' + data.employee_id;
   }} else {{
-    alert('Promote failed: ' + await r.text());
+    hrkit.toast('Promote failed: ' + await r.text(), 'error');
   }}
 }}
 </script>
@@ -626,9 +626,9 @@ def kanban_view(handler) -> None:
           body: JSON.stringify({{status}}),
         }});
         if (r.ok) location.reload();
-        else alert('Move failed: ' + (await r.text()));
+        else hrkit.toast('Move failed: ' + (await r.text()), 'error');
       }} catch (e) {{
-        alert('Move failed: ' + e.message);
+        hrkit.toast('Move failed: ' + e.message, 'error');
       }}
     }});
   }});
@@ -690,7 +690,7 @@ def detail_view(handler, item_id: int) -> None:
             f"{{method:'POST',headers:{{'Content-Type':'application/json'}},"
             f"body:JSON.stringify({{status:'{s}'}})}})"
             f".then(r=>r.ok?location.reload():"
-            f"r.text().then(t=>alert('Move failed: '+t)))\""
+            f"r.text().then(t=>hrkit.toast('Move failed: '+t, 'error')))\""
             f">Move to {s}</button>"
         )
     actions_html = "".join(move_buttons)
@@ -698,11 +698,11 @@ def detail_view(handler, item_id: int) -> None:
     if row.get("status") == "hired":
         actions_html += (
             f"<button onclick=\""
-            f"if(!confirm('Convert this candidate to an employee?'))return;"
+            f"if(!(await hrkit.confirmDialog('Convert this candidate to an employee?')))return;"
             f"fetch('/api/m/recruitment/{rid}/promote',{{method:'POST'}})"
-            f".then(r=>r.ok?r.json().then(d=>{{alert('Created employee #'+d.employee_id);"
+            f".then(r=>r.ok?r.json().then(d=>{{hrkit.toast('Created employee #'+d.employee_id, 'success');"
             f"location.href='/m/employee/'+d.employee_id;}}):"
-            f"r.text().then(t=>alert('Promote failed: '+t)))\""
+            f"r.text().then(t=>hrkit.toast('Promote failed: '+t, 'error')))\""
             f">Convert to employee</button>"
         )
 

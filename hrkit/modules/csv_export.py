@@ -181,7 +181,7 @@ function parseSrc(value) {{
 }}
 document.getElementById('dl').addEventListener('click', async () => {{
   const sel = parseSrc(document.getElementById('src').value);
-  if (!sel) {{ alert('Pick something to export'); return; }}
+  if (!sel) {{ hrkit.toast('Pick something to export', 'info'); return; }}
   const url = sel.kind === 'imported'
     ? '/api/m/csv_import/' + encodeURIComponent(sel.name) + '/export.csv'
     : '/api/m/csv_export/' + encodeURIComponent(sel.name) + '.csv';

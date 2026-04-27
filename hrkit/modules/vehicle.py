@@ -180,12 +180,12 @@ async function submitCreate(ev) {{
     method: 'POST', headers: {{'Content-Type': 'application/json'}},
     body: JSON.stringify(Object.fromEntries(fd.entries())),
   }});
-  if (r.ok) location.reload(); else alert('Save failed: ' + await r.text());
+  if (r.ok) location.reload(); else hrkit.toast('Save failed: ' + await r.text(), 'error');
 }}
 async function deleteRow(id) {{
-  if (!confirm('Delete?')) return;
+  if (!(await hrkit.confirmDialog('Delete?'))) return;
   const r = await fetch('/api/m/vehicle/' + id, {{method: 'DELETE'}});
-  if (r.ok) location.reload(); else alert('Delete failed');
+  if (r.ok) location.reload(); else hrkit.toast('Delete failed', 'error');
 }}
 </script>
 """
@@ -244,21 +244,21 @@ def detail_view(handler, item_id):
 async function assignTo(id) {{
   const emp = document.getElementById('va-emp').value;
   const mile = document.getElementById('va-mile').value || 0;
-  if (!emp) {{ alert('Pick an employee'); return; }}
+  if (!emp) {{ hrkit.toast('Pick an employee', 'info'); return; }}
   const r = await fetch('/api/m/vehicle/' + id + '/assign', {{
     method: 'POST', headers: {{'Content-Type': 'application/json'}},
     body: JSON.stringify({{employee_id: parseInt(emp,10), mileage_start: parseInt(mile,10)}})
   }});
-  if (r.ok) location.reload(); else alert('Assign failed');
+  if (r.ok) location.reload(); else hrkit.toast('Assign failed', 'error');
 }}
 async function returnVeh(id) {{
-  const mile = prompt('Mileage at return?', '0');
+  const mile = (await hrkit.promptDialog('Mileage at return?', '0'));
   if (mile === null) return;
   const r = await fetch('/api/m/vehicle/' + id + '/return', {{
     method: 'POST', headers: {{'Content-Type': 'application/json'}},
     body: JSON.stringify({{mileage_end: parseInt(mile,10) || 0}})
   }});
-  if (r.ok) location.reload(); else alert('Return failed');
+  if (r.ok) location.reload(); else hrkit.toast('Return failed', 'error');
 }}
 </script>
 """

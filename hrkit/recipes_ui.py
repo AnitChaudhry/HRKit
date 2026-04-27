@@ -493,7 +493,7 @@ async function saveRecipe() {
 }
 
 async function deleteRecipe(slug) {
-  if (!confirm('Delete recipe ' + slug + '?')) return;
+  if (!(await hrkit.confirmDialog('Delete recipe ' + slug + '?'))) return;
   try {
     const r = await fetch('/api/recipes/' + encodeURIComponent(slug), {method: 'DELETE'});
     const data = await r.json();
@@ -510,7 +510,7 @@ async function runRecipe(slug) {
   if (!recipe) return;
   const inputs = {};
   for (const name of (recipe.inputs || [])) {
-    const v = prompt('Value for ' + name + ':');
+    const v = (await hrkit.promptDialog('Value for ' + name + ':'));
     if (v === null) return;
     inputs[name] = v;
   }
@@ -521,7 +521,7 @@ async function runRecipe(slug) {
     });
     const data = await r.json();
     if (!r.ok || !data.ok) throw new Error(data.error || 'run failed');
-    alert('Recipe reply:\n\n' + (data.reply || '(no reply)'));
+    hrkit.toast('Recipe reply:\n\n' + (data.reply || '(no reply)'), 'info');
   } catch (err) {
     toast('Run failed: ' + (err.message || err), 'error');
   }

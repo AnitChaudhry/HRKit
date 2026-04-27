@@ -270,16 +270,16 @@ async function submitCreate(ev) {{
     method: 'POST', headers: {{'Content-Type': 'application/json'}},
     body: JSON.stringify(payload),
   }});
-  if (r.ok) location.reload(); else alert('Save failed: ' + await r.text());
+  if (r.ok) location.reload(); else hrkit.toast('Save failed: ' + await r.text(), 'error');
 }}
 async function transitionRow(id, action) {{
   const r = await fetch('/api/m/onboarding/' + id + '/' + action, {{method: 'POST'}});
-  if (r.ok) location.reload(); else alert('Transition failed: ' + await r.text());
+  if (r.ok) location.reload(); else hrkit.toast('Transition failed: ' + await r.text(), 'error');
 }}
 async function deleteRow(id) {{
-  if (!confirm('Delete task #' + id + '?')) return;
+  if (!(await hrkit.confirmDialog('Delete task #' + id + '?'))) return;
   const r = await fetch('/api/m/onboarding/' + id, {{method: 'DELETE'}});
-  if (r.ok) location.reload(); else alert('Delete failed');
+  if (r.ok) location.reload(); else hrkit.toast('Delete failed', 'error');
 }}
 </script>
 """
@@ -344,13 +344,13 @@ def detail_view(handler, item_id: int) -> None:
         btns.append(
             f"<button onclick=\"fetch('/api/m/onboarding/{rid}/start',"
             f"{{method:'POST'}}).then(r=>r.ok?location.reload():"
-            f"r.text().then(t=>alert('Start failed: '+t)))\">Start</button>"
+            f"r.text().then(t=>hrkit.toast('Start failed: '+t, 'error')))\">Start</button>"
         )
     if status in ("pending", "in_progress"):
         btns.append(
             f"<button onclick=\"fetch('/api/m/onboarding/{rid}/done',"
             f"{{method:'POST'}}).then(r=>r.ok?location.reload():"
-            f"r.text().then(t=>alert('Done failed: '+t)))\">Done</button>"
+            f"r.text().then(t=>hrkit.toast('Done failed: '+t, 'error')))\">Done</button>"
         )
     actions_html = "".join(btns)
 

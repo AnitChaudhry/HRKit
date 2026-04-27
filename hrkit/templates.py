@@ -1132,6 +1132,280 @@ dialog button[type=submit]:hover{filter:brightness(1.05);background:var(--accent
 """
 
 
+# ---------------------------------------------------------------------------
+# Branded dialog + toast helpers — replaces native alert / confirm / prompt
+# ---------------------------------------------------------------------------
+# Auto-injected into every module page by ``render_module_page``. The CSS
+# uses the existing horilla theme tokens so light + dark modes both work.
+BRANDED_DIALOGS_CSS = r"""
+.hrkit-toast-host{position:fixed;top:18px;right:18px;display:flex;flex-direction:column;
+  gap:8px;z-index:9999;pointer-events:none}
+.hrkit-toast{pointer-events:auto;background:var(--panel);color:var(--text);
+  border:1px solid var(--border);border-left:4px solid var(--accent);
+  border-radius:10px;padding:10px 38px 10px 14px;font-size:13px;
+  box-shadow:var(--shadow-md);min-width:240px;max-width:380px;position:relative;
+  animation:hrkit-toast-in .18s ease-out}
+.hrkit-toast.success{border-left-color:#10b981}
+.hrkit-toast.error{border-left-color:#dc2626}
+.hrkit-toast.info{border-left-color:var(--accent)}
+.hrkit-toast .hrkit-toast-close{position:absolute;top:6px;right:6px;width:22px;
+  height:22px;border:0;background:transparent;color:var(--dim);border-radius:6px;
+  cursor:pointer;font-size:16px;line-height:1;display:flex;align-items:center;
+  justify-content:center;padding:0}
+.hrkit-toast .hrkit-toast-close:hover{background:var(--row-hover);color:var(--text)}
+@keyframes hrkit-toast-in{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
+@keyframes hrkit-toast-out{from{opacity:1}to{opacity:0;transform:translateY(-4px)}}
+
+.hrkit-modal::backdrop{background:rgba(15,23,42,0.45)}
+[data-theme="dark"] .hrkit-modal::backdrop{background:rgba(0,0,0,0.6)}
+.hrkit-modal{border:1px solid var(--border);border-radius:14px;background:var(--panel);
+  color:var(--text);box-shadow:var(--shadow-md);padding:0;min-width:340px;max-width:480px;
+  font:14px/1.5 'Inter',sans-serif}
+.hrkit-modal[open]{animation:hrkit-modal-in .14s ease-out}
+@keyframes hrkit-modal-in{from{opacity:0;transform:translateY(-4px) scale(.98)}
+  to{opacity:1;transform:none}}
+.hrkit-modal-head{display:flex;align-items:center;gap:8px;padding:14px 16px 0}
+.hrkit-modal-title{font-weight:600;font-size:14px;flex:1}
+.hrkit-modal-close{width:28px;height:28px;border:0;background:transparent;color:var(--dim);
+  border-radius:8px;cursor:pointer;font-size:18px;line-height:1;display:flex;align-items:center;
+  justify-content:center;padding:0;margin:-4px -4px 0 0}
+.hrkit-modal-close:hover{background:var(--row-hover);color:var(--text)}
+.hrkit-modal-body{padding:8px 16px 0;color:var(--text);font-size:13.5px;line-height:1.55}
+.hrkit-modal-input{width:100%;margin-top:10px;padding:8px 10px;background:var(--bg);
+  color:var(--text);border:1px solid var(--border);border-radius:8px;font:inherit}
+.hrkit-modal-input:focus{outline:2px solid var(--accent);outline-offset:-1px}
+.hrkit-modal-actions{display:flex;justify-content:flex-end;gap:8px;padding:16px}
+.hrkit-modal-btn{padding:7px 14px;border:1px solid var(--border);border-radius:8px;
+  background:var(--panel);color:var(--text);cursor:pointer;font:inherit;font-size:13px}
+.hrkit-modal-btn:hover{background:var(--row-hover)}
+.hrkit-modal-btn.primary{background:var(--accent);color:#fff;border-color:var(--accent)}
+.hrkit-modal-btn.primary:hover{background:color-mix(in srgb,var(--accent) 88%,#000 12%)}
+.hrkit-modal-btn.danger{background:#dc2626;color:#fff;border-color:#dc2626}
+.hrkit-modal-btn.danger:hover{background:#b91c1c}
+
+/* Auto-close button injected on every <dialog> that doesn't already have one. */
+.hrkit-dlg-close{position:absolute;top:8px;right:8px;width:28px;height:28px;
+  border:0;background:transparent;color:var(--dim);border-radius:8px;cursor:pointer;
+  font-size:18px;line-height:1;display:flex;align-items:center;justify-content:center;
+  padding:0;z-index:2}
+.hrkit-dlg-close:hover{background:var(--row-hover);color:var(--text)}
+
+/* Baseline branded look for every native <dialog> on a module page that
+   isn't one of our purpose-built .hrkit-modal popups. Lets the existing
+   per-module dialogs (create / upload / assign / etc.) inherit the
+   horilla theme without each module needing its own dialog CSS. */
+dialog:not(.hrkit-modal){position:relative;border:1px solid var(--border);
+  border-radius:14px;background:var(--panel);color:var(--text);
+  box-shadow:var(--shadow-md);padding:18px 18px 14px;min-width:340px;
+  max-width:520px;font:14px/1.55 'Inter',sans-serif}
+dialog:not(.hrkit-modal)::backdrop{background:rgba(15,23,42,0.45)}
+[data-theme="dark"] dialog:not(.hrkit-modal)::backdrop{background:rgba(0,0,0,0.6)}
+dialog:not(.hrkit-modal)[open]{animation:hrkit-modal-in .14s ease-out}
+dialog:not(.hrkit-modal) form{display:flex;flex-direction:column;gap:10px;
+  margin:0;padding-top:6px}
+dialog:not(.hrkit-modal) label{display:flex;flex-direction:column;gap:4px;
+  font-size:12px;color:var(--dim);font-weight:500;margin:0}
+dialog:not(.hrkit-modal) input[type=text],
+dialog:not(.hrkit-modal) input[type=email],
+dialog:not(.hrkit-modal) input[type=tel],
+dialog:not(.hrkit-modal) input[type=number],
+dialog:not(.hrkit-modal) input[type=date],
+dialog:not(.hrkit-modal) input[type=time],
+dialog:not(.hrkit-modal) input[type=datetime-local],
+dialog:not(.hrkit-modal) input[type=month],
+dialog:not(.hrkit-modal) input[type=password],
+dialog:not(.hrkit-modal) input[type=search],
+dialog:not(.hrkit-modal) input[type=url],
+dialog:not(.hrkit-modal) input:not([type]),
+dialog:not(.hrkit-modal) select,
+dialog:not(.hrkit-modal) textarea{padding:8px 10px;background:var(--bg);
+  color:var(--text);border:1px solid var(--border);border-radius:8px;
+  font:13.5px 'Inter',sans-serif;width:100%}
+dialog:not(.hrkit-modal) input:focus,
+dialog:not(.hrkit-modal) select:focus,
+dialog:not(.hrkit-modal) textarea:focus{outline:2px solid var(--accent);
+  outline-offset:-1px;border-color:var(--accent)}
+dialog:not(.hrkit-modal) textarea{min-height:64px;resize:vertical;font-family:inherit}
+dialog:not(.hrkit-modal) input[type=checkbox],
+dialog:not(.hrkit-modal) input[type=radio]{width:auto;accent-color:var(--accent)}
+dialog:not(.hrkit-modal) menu{display:flex;justify-content:flex-end;gap:8px;
+  padding:6px 0 0;margin:6px 0 0;border:0}
+dialog:not(.hrkit-modal) button,
+dialog:not(.hrkit-modal) menu button{padding:7px 14px;border:1px solid var(--border);
+  border-radius:8px;background:var(--panel);color:var(--text);cursor:pointer;
+  font:13px 'Inter',sans-serif}
+dialog:not(.hrkit-modal) button:hover{background:var(--row-hover)}
+dialog:not(.hrkit-modal) button[type=submit]{background:var(--accent);
+  color:#fff;border-color:var(--accent);font-weight:500}
+dialog:not(.hrkit-modal) button[type=submit]:hover{
+  background:color-mix(in srgb,var(--accent) 88%,#000 12%)}
+"""
+
+BRANDED_DIALOGS_JS = r"""
+(function() {
+  'use strict';
+  if (window.hrkit && window.hrkit.__init) return;
+  const ns = (window.hrkit = window.hrkit || {});
+
+  // --- toast() ------------------------------------------------------------
+  let host = null;
+  function getHost() {
+    if (host && document.body.contains(host)) return host;
+    host = document.createElement('div');
+    host.className = 'hrkit-toast-host';
+    document.body.appendChild(host);
+    return host;
+  }
+  ns.toast = function(message, type) {
+    const t = document.createElement('div');
+    t.className = 'hrkit-toast ' + (type === 'success' || type === 'error' || type === 'info' ? type : 'info');
+    t.textContent = String(message == null ? '' : message);
+    const close = document.createElement('button');
+    close.className = 'hrkit-toast-close';
+    close.type = 'button';
+    close.setAttribute('aria-label', 'Dismiss');
+    close.textContent = '×';
+    close.addEventListener('click', () => dismiss(t));
+    t.appendChild(close);
+    getHost().appendChild(t);
+    const ttl = (type === 'error' ? 6500 : 3500);
+    setTimeout(() => dismiss(t), ttl);
+  };
+  function dismiss(el) {
+    if (!el || !el.parentNode) return;
+    el.style.animation = 'hrkit-toast-out .18s ease-out forwards';
+    setTimeout(() => el.parentNode && el.parentNode.removeChild(el), 200);
+  }
+
+  // --- confirmDialog / promptDialog --------------------------------------
+  function buildModal(opts) {
+    const dlg = document.createElement('dialog');
+    dlg.className = 'hrkit-modal';
+    const titleText = opts.title || (opts.kind === 'prompt' ? 'Input required' : 'Are you sure?');
+    const okLabel = opts.okLabel || (opts.kind === 'prompt' ? 'Submit' : 'Confirm');
+    const cancelLabel = opts.cancelLabel || 'Cancel';
+    const okClass = opts.danger ? 'danger' : 'primary';
+    const inputHtml = opts.kind === 'prompt'
+      ? '<input class="hrkit-modal-input" id="hrkit-modal-input" autocomplete="off">'
+      : '';
+    dlg.innerHTML = (
+      '<form method="dialog">'
+      + '<div class="hrkit-modal-head">'
+      + '<div class="hrkit-modal-title">' + escapeHtml(titleText) + '</div>'
+      + '<button type="button" class="hrkit-modal-close" aria-label="Close">×</button>'
+      + '</div>'
+      + '<div class="hrkit-modal-body">' + escapeHtml(opts.message || '') + inputHtml + '</div>'
+      + '<div class="hrkit-modal-actions">'
+      + '<button type="button" class="hrkit-modal-btn" data-act="cancel">' + escapeHtml(cancelLabel) + '</button>'
+      + '<button type="submit" class="hrkit-modal-btn ' + okClass + '" data-act="ok">' + escapeHtml(okLabel) + '</button>'
+      + '</div>'
+      + '</form>'
+    );
+    return dlg;
+  }
+  function escapeHtml(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function(c) {
+      return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":"&#39;"})[c];
+    });
+  }
+  function showModal(opts) {
+    return new Promise(function(resolve) {
+      const dlg = buildModal(opts || {});
+      document.body.appendChild(dlg);
+      const input = dlg.querySelector('#hrkit-modal-input');
+      if (input && opts.defaultValue != null) input.value = String(opts.defaultValue);
+      let resolved = false;
+      function done(value) {
+        if (resolved) return;
+        resolved = true;
+        try { dlg.close(); } catch (e) {}
+        if (dlg.parentNode) dlg.parentNode.removeChild(dlg);
+        resolve(value);
+      }
+      dlg.querySelector('.hrkit-modal-close').addEventListener('click', () =>
+        done(opts.kind === 'prompt' ? null : false));
+      dlg.querySelector('[data-act="cancel"]').addEventListener('click', () =>
+        done(opts.kind === 'prompt' ? null : false));
+      dlg.querySelector('form').addEventListener('submit', (ev) => {
+        ev.preventDefault();
+        if (opts.kind === 'prompt') done(input ? input.value : '');
+        else done(true);
+      });
+      // Click outside modal closes (Cancel).
+      dlg.addEventListener('click', (ev) => {
+        const r = dlg.getBoundingClientRect();
+        const inside = ev.clientX >= r.left && ev.clientX <= r.right
+          && ev.clientY >= r.top && ev.clientY <= r.bottom;
+        if (!inside) done(opts.kind === 'prompt' ? null : false);
+      });
+      dlg.addEventListener('cancel', (ev) => {
+        ev.preventDefault();
+        done(opts.kind === 'prompt' ? null : false);
+      });
+      try { dlg.showModal(); } catch (e) { dlg.setAttribute('open', ''); }
+      if (input) setTimeout(() => input.focus(), 30);
+    });
+  }
+  ns.confirmDialog = function(message, opts) {
+    opts = opts || {};
+    return showModal({
+      kind: 'confirm', message: message,
+      title: opts.title, okLabel: opts.okLabel, cancelLabel: opts.cancelLabel,
+      danger: !!opts.danger,
+    });
+  };
+  ns.promptDialog = function(message, defaultValue, opts) {
+    opts = opts || {};
+    return showModal({
+      kind: 'prompt', message: message, defaultValue: defaultValue,
+      title: opts.title, okLabel: opts.okLabel, cancelLabel: opts.cancelLabel,
+    });
+  };
+
+  // --- × close + click-outside on every existing <dialog> ----------------
+  function ensureCloseAffordance(dlg) {
+    if (!dlg || dlg.classList.contains('hrkit-modal')) return; // already branded
+    if (dlg.dataset.hrkitWired === '1') return;
+    dlg.dataset.hrkitWired = '1';
+    if (!dlg.querySelector('.hrkit-dlg-close')) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'hrkit-dlg-close';
+      btn.setAttribute('aria-label', 'Close');
+      btn.textContent = '×';
+      btn.addEventListener('click', () => { try { dlg.close(); } catch (e) {} });
+      dlg.appendChild(btn);
+    }
+    dlg.addEventListener('click', (ev) => {
+      if (ev.target !== dlg) return; // only the backdrop
+      try { dlg.close(); } catch (e) {}
+    });
+  }
+  function wireAllDialogs(root) {
+    (root || document).querySelectorAll('dialog').forEach(ensureCloseAffordance);
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => wireAllDialogs());
+  } else {
+    wireAllDialogs();
+  }
+  // Wire any future dialogs created dynamically.
+  const mo = new MutationObserver((muts) => {
+    for (const m of muts) {
+      m.addedNodes.forEach((n) => {
+        if (n.nodeType !== 1) return;
+        if (n.tagName === 'DIALOG') ensureCloseAffordance(n);
+        else if (n.querySelectorAll) wireAllDialogs(n);
+      });
+    }
+  });
+  mo.observe(document.body || document.documentElement, {childList: true, subtree: true});
+
+  ns.__init = true;
+})();
+"""
+
+
 def _module_nav(active: str) -> str:
     """Render the sidebar nav with module links grouped by category."""
     enabled = set(feature_flags.enabled_modules())
@@ -1421,7 +1695,7 @@ async function fsOpen(rel) {{
       method: 'POST', headers: {{'Content-Type': 'application/json'}},
       body: JSON.stringify({{path: rel}}),
     }});
-  }} catch (err) {{ alert('Could not open: ' + err); }}
+  }} catch (err) {{ hrkit.toast('Could not open: ' + err, 'error'); }}
 }}
 fsLoad('');
 </script>
@@ -1507,6 +1781,7 @@ def render_module_page(*, title: str, nav_active: str, body_html: str) -> str:
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>{MODULE_CSS}</style>
+<style>{BRANDED_DIALOGS_CSS}</style>
 <script>
   // Apply persisted theme before paint to avoid flash. Light is the default.
   (function() {{
@@ -1518,6 +1793,7 @@ def render_module_page(*, title: str, nav_active: str, body_html: str) -> str:
     }} catch (e) {{}}
   }})();
 </script>
+<script>{BRANDED_DIALOGS_JS}</script>
 </head>
 <body>
 <div class="app-shell">
@@ -1737,12 +2013,12 @@ async function submitEdit(ev) {{
     method: 'POST', headers: {{'Content-Type': 'application/json'}},
     body: JSON.stringify(payload),
   }});
-  if (r.ok) location.reload(); else alert('Save failed: ' + await r.text());
+  if (r.ok) location.reload(); else hrkit.toast('Save failed: ' + await r.text(), 'error');
 }}
 async function deleteRecord(id) {{
-  if (!confirm('Delete this record?')) return;
+  if (!(await hrkit.confirmDialog('Delete this record?'))) return;
   const r = await fetch('{api_path}/' + id, {{method: 'DELETE'}});
-  if (r.ok) location.href = '{delete_redirect}'; else alert('Delete failed');
+  if (r.ok) location.href = '{delete_redirect}'; else hrkit.toast('Delete failed', 'error');
 }}
 </script>"""
 

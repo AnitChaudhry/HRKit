@@ -200,12 +200,12 @@ async function submitCreate(ev) {{
     method: 'POST', headers: {{'Content-Type': 'application/json'}},
     body: JSON.stringify(payload),
   }});
-  if (r.ok) location.reload(); else alert('Save failed: ' + await r.text());
+  if (r.ok) location.reload(); else hrkit.toast('Save failed: ' + await r.text(), 'error');
 }}
 async function deleteRow(id) {{
-  if (!confirm('Delete asset #' + id + '?')) return;
+  if (!(await hrkit.confirmDialog('Delete asset #' + id + '?'))) return;
   const r = await fetch('/api/m/asset/' + id, {{method: 'DELETE'}});
-  if (r.ok) location.reload(); else alert('Delete failed');
+  if (r.ok) location.reload(); else hrkit.toast('Delete failed', 'error');
 }}
 </script>
 """
@@ -265,17 +265,17 @@ def detail_view(handler, item_id: int) -> None:
 <script>
 async function assignTo(assetId) {{
   const sel = document.getElementById('assign-to');
-  if (!sel.value) {{ alert('Pick an employee first'); return; }}
+  if (!sel.value) {{ hrkit.toast('Pick an employee first', 'info'); return; }}
   const r = await fetch('/api/m/asset/' + assetId + '/assign', {{
     method: 'POST', headers: {{'Content-Type': 'application/json'}},
     body: JSON.stringify({{employee_id: parseInt(sel.value, 10)}})
   }});
-  if (r.ok) location.reload(); else alert('Assign failed: ' + await r.text());
+  if (r.ok) location.reload(); else hrkit.toast('Assign failed: ' + await r.text(), 'error');
 }}
 async function returnAsset(assetId) {{
-  if (!confirm('Mark asset returned?')) return;
+  if (!(await hrkit.confirmDialog('Mark asset returned?'))) return;
   const r = await fetch('/api/m/asset/' + assetId + '/return', {{method: 'POST'}});
-  if (r.ok) location.reload(); else alert('Return failed');
+  if (r.ok) location.reload(); else hrkit.toast('Return failed', 'error');
 }}
 </script>
 """

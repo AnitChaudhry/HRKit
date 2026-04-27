@@ -175,12 +175,12 @@ async function submitCreate(ev) {{
   }}
   if (fd.get('expiry_date') === '') fd.delete('expiry_date');
   const r = await fetch('/api/m/document/upload', {{method: 'POST', body: fd}});
-  if (r.ok) location.reload(); else alert('Save failed: ' + await r.text());
+  if (r.ok) location.reload(); else hrkit.toast('Save failed: ' + await r.text(), 'error');
 }}
 async function deleteRow(id) {{
-  if (!confirm('Delete document #' + id + '?')) return;
+  if (!(await hrkit.confirmDialog('Delete document #' + id + '?'))) return;
   const r = await fetch('/api/m/document/' + id, {{method: 'DELETE'}});
-  if (r.ok) location.reload(); else alert('Delete failed');
+  if (r.ok) location.reload(); else hrkit.toast('Delete failed', 'error');
 }}
 </script>
 """

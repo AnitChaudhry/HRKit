@@ -436,7 +436,7 @@ def _render_runs_table(runs: list[dict[str, Any]]) -> str:
         "var body={period:f.get('period'),notes:f.get('notes')||''};"
         "var r=await fetch('/api/m/payroll',{method:'POST',"
         "headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});"
-        "if(r.ok){location.reload();}else{alert('Save failed');}}"
+        "if(r.ok){location.reload();}else{hrkit.toast('Save failed', 'error');}}"
         "</script>"
     )
 
@@ -487,10 +487,10 @@ def _render_run_detail(run: dict[str, Any], slips: list[dict[str, Any]]) -> str:
         "<script>"
         "async function genSlips(id){"
         "var r=await fetch('/api/m/payroll/'+id+'/generate',{method:'POST'});"
-        "if(r.ok){location.reload();}else{alert('Generate failed');}}"
+        "if(r.ok){location.reload();}else{hrkit.toast('Generate failed', 'error');}}"
         "async function processRun(id){"
         "var r=await fetch('/api/m/payroll/'+id+'/process',{method:'POST'});"
-        "if(r.ok){location.reload();}else{alert('Process failed');}}"
+        "if(r.ok){location.reload();}else{hrkit.toast('Process failed', 'error');}}"
         "</script>"
     )
 
@@ -633,10 +633,10 @@ def detail_view(handler, item_id: int) -> None:
     rid = int(item_id)
     actions_html = (
         f"<button onclick=\"fetch('/api/m/payroll/{rid}/generate',"
-        f"{{method:'POST'}}).then(r=>r.ok?location.reload():alert('Generate failed'))\""
+        f"{{method:'POST'}}).then(r=>r.ok?location.reload():hrkit.toast('Generate failed', 'error'))\""
         f">Generate payslips</button>"
         f"<button onclick=\"fetch('/api/m/payroll/{rid}/process',"
-        f"{{method:'POST'}}).then(r=>r.ok?location.reload():alert('Process failed'))\""
+        f"{{method:'POST'}}).then(r=>r.ok?location.reload():hrkit.toast('Process failed', 'error'))\""
         f">Process run</button>"
     )
 

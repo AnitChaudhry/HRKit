@@ -790,7 +790,7 @@ async function onAttach(fileList) {
       if (!r.ok || !data.ok) throw new Error(data.error || 'upload failed');
       attached.push({id: data.id, filename: data.filename, size: data.size});
     } catch (err) {
-      alert('Attach failed: ' + (err.message || err));
+      hrkit.toast('Attach failed: ' + (err.message || err), 'error');
     }
   }
   document.getElementById('file-input').value = '';
@@ -868,7 +868,7 @@ async function loadConversation(id) {
                 (employeeCode ? '?employee_code=' + encodeURIComponent(employeeCode) : '');
     const r = await fetch(url);
     const data = await r.json();
-    if (!r.ok || !data.ok) { alert('Load failed: ' + (data.error || '')); return; }
+    if (!r.ok || !data.ok) { hrkit.toast('Load failed: ' + (data.error || ''), 'error'); return; }
     conversationId = id;
     history = data.messages || [];
     msgEl.innerHTML = '';
@@ -881,7 +881,7 @@ async function loadConversation(id) {
     }
     refreshConvoList();
   } catch (err) {
-    alert('Load failed: ' + err);
+    hrkit.toast('Load failed: ' + err, 'error');
   }
 }
 

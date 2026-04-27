@@ -232,7 +232,7 @@ async function computeAndSettle(ev, exitId, salaryMinor, yos) {{
     method: 'POST', headers: {{'Content-Type': 'application/json'}},
     body: JSON.stringify(payload),
   }});
-  if (r.ok) location.reload(); else alert('Settle failed: ' + await r.text());
+  if (r.ok) location.reload(); else hrkit.toast('Settle failed: ' + await r.text(), 'error');
 }}
 </script>
 """

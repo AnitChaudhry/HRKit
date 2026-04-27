@@ -246,12 +246,12 @@ async function submitCreate(ev) {{
     method: 'POST', headers: {{'Content-Type': 'application/json'}},
     body: JSON.stringify(payload),
   }});
-  if (r.ok) location.reload(); else alert('Save failed: ' + await r.text());
+  if (r.ok) location.reload(); else hrkit.toast('Save failed: ' + await r.text(), 'error');
 }}
 async function deleteRow(id) {{
-  if (!confirm('Delete expense #' + id + '?')) return;
+  if (!(await hrkit.confirmDialog('Delete expense #' + id + '?'))) return;
   const r = await fetch('/api/m/expense/' + id, {{method: 'DELETE'}});
-  if (r.ok) location.reload(); else alert('Delete failed');
+  if (r.ok) location.reload(); else hrkit.toast('Delete failed', 'error');
 }}
 </script>
 """
@@ -365,12 +365,12 @@ async function addCat(ev) {{
     method: 'POST', headers: {{'Content-Type': 'application/json'}},
     body: JSON.stringify(Object.fromEntries(fd.entries())),
   }});
-  if (r.ok) location.reload(); else alert('Add failed: ' + await r.text());
+  if (r.ok) location.reload(); else hrkit.toast('Add failed: ' + await r.text(), 'error');
 }}
 async function deleteCat(id) {{
-  if (!confirm('Delete category?')) return;
+  if (!(await hrkit.confirmDialog('Delete category?'))) return;
   const r = await fetch('/api/m/expense/categories/' + id, {{method: 'DELETE'}});
-  if (r.ok) location.reload(); else alert('Delete failed');
+  if (r.ok) location.reload(); else hrkit.toast('Delete failed', 'error');
 }}
 </script>
 """

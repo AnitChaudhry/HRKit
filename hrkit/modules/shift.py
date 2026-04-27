@@ -198,12 +198,12 @@ async function submitCreate(ev) {{
     method: 'POST', headers: {{'Content-Type': 'application/json'}},
     body: JSON.stringify(Object.fromEntries(fd.entries())),
   }});
-  if (r.ok) location.reload(); else alert('Save failed: ' + await r.text());
+  if (r.ok) location.reload(); else hrkit.toast('Save failed: ' + await r.text(), 'error');
 }}
 async function deleteRow(id) {{
-  if (!confirm('Delete shift #' + id + '?')) return;
+  if (!(await hrkit.confirmDialog('Delete shift #' + id + '?'))) return;
   const r = await fetch('/api/m/shift/' + id, {{method: 'DELETE'}});
-  if (r.ok) location.reload(); else alert('Delete failed');
+  if (r.ok) location.reload(); else hrkit.toast('Delete failed', 'error');
 }}
 </script>
 """
@@ -267,12 +267,12 @@ async function addAssign(shiftId) {{
   const emp = document.getElementById('sa-emp').value;
   const start = document.getElementById('sa-start').value;
   const end = document.getElementById('sa-end').value;
-  if (!emp || !start) {{ alert('Pick an employee and start date'); return; }}
+  if (!emp || !start) {{ hrkit.toast('Pick an employee and start date', 'info'); return; }}
   const r = await fetch('/api/m/shift/' + shiftId + '/assign', {{
     method: 'POST', headers: {{'Content-Type': 'application/json'}},
     body: JSON.stringify({{employee_id: parseInt(emp,10), start_date: start, end_date: end || ''}})
   }});
-  if (r.ok) location.reload(); else alert('Assign failed: ' + await r.text());
+  if (r.ok) location.reload(); else hrkit.toast('Assign failed: ' + await r.text(), 'error');
 }}
 </script>
 """

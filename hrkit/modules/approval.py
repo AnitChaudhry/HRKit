@@ -196,13 +196,13 @@ function filter(q) {{
   }});
 }}
 async function respond(id, verdict) {{
-  const comments = verdict === 'rejected' ? prompt('Reason for rejection?', '') : '';
+  const comments = verdict === 'rejected' ? (await hrkit.promptDialog('Reason for rejection?', '')) : '';
   if (verdict === 'rejected' && comments === null) return;
   const r = await fetch('/api/m/approval/' + id + '/respond', {{
     method: 'POST', headers: {{'Content-Type': 'application/json'}},
     body: JSON.stringify({{status: verdict, comments: comments || ''}})
   }});
-  if (r.ok) location.reload(); else alert('Failed: ' + await r.text());
+  if (r.ok) location.reload(); else hrkit.toast('Failed: ' + await r.text(), 'error');
 }}
 </script>
 """
