@@ -112,64 +112,101 @@ def render_wizard_page(conn: sqlite3.Connection) -> str:
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Welcome &middot; {title}</title>
 <style>
+  /* Wizard uses the same token system as the rest of the app — light by
+     default, dark via [data-theme="dark"] on <html>. */
+  :root {{
+    --bg:#f5f6f8; --panel:#ffffff; --panel-alt:#fafbfc;
+    --border:#e5e7eb; --border-soft:#eef0f3;
+    --text:#1f2937; --dim:#6b7280; --mute:#9ca3af;
+    --accent:#ef4444; --accent-soft:rgba(239,68,68,0.10);
+    --green:#10b981; --red:#ef4444;
+    --row-hover:rgba(15,23,42,0.03);
+    --shadow-md:0 1px 3px rgba(15,23,42,0.05),0 4px 16px rgba(15,23,42,0.06);
+  }}
+  [data-theme="dark"] {{
+    --bg:#08090a; --panel:#14171d; --panel-alt:#0f1115;
+    --border:rgba(255,255,255,0.08); --border-soft:rgba(255,255,255,0.05);
+    --text:#e8eaed; --dim:#9aa0a6; --mute:#6b7280;
+    --accent:#ef4444; --accent-soft:rgba(239,68,68,0.18);
+    --row-hover:rgba(255,255,255,0.04);
+    --shadow-md:0 12px 40px rgba(0,0,0,0.5);
+  }}
   *,*::before,*::after {{ box-sizing: border-box; }}
   body {{ margin: 0; font-family: 'Inter', system-ui, sans-serif;
-         background: #08090a; color: #e8eaed; min-height: 100vh;
+         background: var(--bg); color: var(--text); min-height: 100vh;
+         -webkit-font-smoothing: antialiased;
          display: flex; align-items: center; justify-content: center; padding: 24px; }}
-  .card {{ background: #14171d; border: 1px solid rgba(255,255,255,0.08);
+  .card {{ background: var(--panel); border: 1px solid var(--border);
            border-radius: 14px; padding: 32px 36px; width: 920px; max-width: 96vw;
-           box-shadow: 0 12px 40px rgba(0,0,0,0.5); }}
-  h1 {{ margin: 0 0 6px; font-size: 22px; letter-spacing: -0.02em; }}
-  .sub {{ color: #9aa0a6; font-size: 13px; margin-bottom: 18px; }}
+           box-shadow: var(--shadow-md); }}
+  h1 {{ margin: 0 0 6px; font-size: 22px; letter-spacing: -0.02em; font-weight: 700; }}
+  .sub {{ color: var(--dim); font-size: 13px; margin-bottom: 18px; }}
   .steps {{ display: flex; gap: 6px; margin-bottom: 22px; }}
-  .dot {{ flex: 1; height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px; }}
-  .dot.active {{ background: #6366f1; }}
-  .dot.done {{ background: #10b981; }}
-  label {{ display: block; font-size: 12px; color: #9aa0a6; margin-top: 12px; margin-bottom: 4px; }}
-  input, select, textarea {{ width: 100%; padding: 9px 11px; background: #0f1115;
-                              border: 1px solid rgba(255,255,255,0.12); border-radius: 8px;
-                              color: #e8eaed; font-size: 13px; font-family: inherit; }}
-  input:focus, select:focus, textarea:focus {{ outline: none; border-color: #6366f1; }}
+  .dot {{ flex: 1; height: 4px; background: var(--border); border-radius: 2px; }}
+  .dot.active {{ background: var(--accent); }}
+  .dot.done {{ background: var(--green); }}
+  label {{ display: block; font-size: 12px; color: var(--dim); margin-top: 12px;
+           margin-bottom: 4px; font-weight: 500; }}
+  input, select, textarea {{ width: 100%; padding: 9px 11px; background: var(--panel-alt);
+                              border: 1px solid var(--border); border-radius: 8px;
+                              color: var(--text); font-size: 13px; font-family: inherit; }}
+  input:focus, select:focus, textarea:focus {{ outline: none; border-color: var(--accent);
+                                                box-shadow: 0 0 0 3px var(--accent-soft); }}
   .row {{ display: flex; gap: 12px; }}
   .row > * {{ flex: 1; }}
   .actions {{ display: flex; justify-content: space-between; gap: 8px; margin-top: 22px; }}
-  button {{ padding: 9px 16px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1);
-            background: #1a1d24; color: inherit; font-size: 13px; cursor: pointer;
-            font-family: inherit; }}
-  button.primary {{ background: #6366f1; border-color: #6366f1; color: #fff; font-weight: 600; }}
-  button:hover {{ filter: brightness(1.1); }}
+  button {{ padding: 9px 16px; border-radius: 8px; border: 1px solid var(--border);
+            background: var(--panel); color: var(--text); font-size: 13px; cursor: pointer;
+            font-family: inherit; font-weight: 500; }}
+  button.primary {{ background: var(--accent); border-color: var(--accent);
+                    color: #fff; font-weight: 600; }}
+  button:hover {{ filter: brightness(1.04); }}
+  button:disabled {{ opacity: 0.5; cursor: not-allowed; }}
   .step {{ display: none; }}
   .step.active {{ display: block; }}
-  .err {{ color: #f43f5e; font-size: 12px; margin-top: 10px; min-height: 16px; }}
-  .skip {{ background: none; border: none; color: #9aa0a6; padding: 9px 0; cursor: pointer; }}
-  .skip:hover {{ color: #e8eaed; }}
+  .err {{ color: var(--red); font-size: 12px; margin-top: 10px; min-height: 16px; }}
+  .skip {{ background: none; border: none; color: var(--dim); padding: 9px 0;
+           cursor: pointer; font-weight: 500; }}
+  .skip:hover {{ color: var(--text); }}
   .checkbox-row {{ display: flex; align-items: center; gap: 8px; margin-top: 14px;
-                   color: #9aa0a6; font-size: 12px; }}
+                   color: var(--dim); font-size: 12px; }}
   .checkbox-row input {{ width: auto; margin: 0; }}
   .wm-grid {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;
               padding: 6px;
-              border: 1px solid rgba(255,255,255,0.05); border-radius: 8px;
-              background: #0b0d12; }}
+              border: 1px solid var(--border-soft); border-radius: 10px;
+              background: var(--panel-alt); }}
   @media (max-width: 880px) {{ .wm-grid {{ grid-template-columns: 1fr 1fr; }} }}
   @media (max-width: 580px) {{ .wm-grid {{ grid-template-columns: 1fr; }} }}
   .wm-row {{ display: flex; gap: 8px; align-items: flex-start; padding: 8px 10px;
              border-radius: 6px; cursor: pointer; margin: 0;
-             background: rgba(255,255,255,0.02); border: 1px solid transparent; }}
-  .wm-row:hover {{ border-color: rgba(99,102,241,0.4); }}
+             background: var(--panel); border: 1px solid var(--border-soft); }}
+  .wm-row:hover {{ border-color: var(--accent); }}
   .wm-row input {{ width: auto; margin-top: 3px; flex-shrink: 0; }}
   .wm-meta {{ flex: 1; min-width: 0; }}
   .wm-head {{ display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }}
-  .wm-label {{ font-weight: 600; color: #e8eaed; font-size: 13px; }}
-  .wm-cat {{ font-size: 9px; padding: 1px 5px; border-radius: 3px; text-transform: uppercase;
-             letter-spacing: 0.5px; background: rgba(255,255,255,0.08); color: #9aa0a6; }}
-  .wm-cat-core {{ background: rgba(99,102,241,0.2); color: #a5b4fc; }}
-  .wm-cat-hiring {{ background: rgba(245,158,11,0.2); color: #fcd34d; }}
-  .wm-lock {{ font-size: 9px; padding: 1px 5px; border-radius: 3px;
-              background: rgba(255,255,255,0.05); color: #6b7280; text-transform: uppercase; }}
-  .wm-desc {{ font-size: 11px; color: #6b7280; margin-top: 2px; line-height: 1.35; }}
+  .wm-label {{ font-weight: 600; color: var(--text); font-size: 13px; }}
+  .wm-cat {{ font-size: 9px; padding: 2px 7px; border-radius: 999px; text-transform: uppercase;
+             letter-spacing: 0.6px; font-weight: 600;
+             background: var(--row-hover); color: var(--dim); }}
+  .wm-cat-core {{ background: var(--accent-soft); color: var(--accent); }}
+  .wm-cat-hiring {{ background: rgba(245,158,11,0.14); color: #b45309; }}
+  [data-theme="dark"] .wm-cat-hiring {{ color: #fcd34d; }}
+  .wm-lock {{ font-size: 9px; padding: 2px 7px; border-radius: 999px; font-weight: 600;
+              background: var(--row-hover); color: var(--mute); text-transform: uppercase;
+              letter-spacing: 0.6px; }}
+  .wm-desc {{ font-size: 11px; color: var(--dim); margin-top: 2px; line-height: 1.45; }}
   .wm-quick {{ display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap; }}
   .wm-quick button {{ padding: 4px 10px; font-size: 11px; }}
 </style>
+<script>
+  // Apply persisted theme before paint to avoid a flash on the wizard.
+  (function() {{
+    try {{
+      var t = localStorage.getItem('hrkit-theme');
+      if (t === 'dark' || t === 'light') document.documentElement.setAttribute('data-theme', t);
+    }} catch (e) {{}}
+  }})();
+</script>
 </head>
 <body>
 <div class="card">

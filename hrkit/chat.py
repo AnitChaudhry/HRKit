@@ -507,7 +507,7 @@ _CHAT_BODY = """
 #convo-list{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:2px}
 .convo-item{padding:7px 10px;border-radius:6px;font-size:12.5px;color:var(--dim);
   cursor:pointer;border:1px solid transparent;display:flex;flex-direction:column;gap:2px}
-.convo-item:hover{background:rgba(255,255,255,0.03);color:var(--text)}
+.convo-item:hover{background:var(--row-hover);color:var(--text)}
 .convo-item.active{background:color-mix(in srgb,var(--accent) 18%,transparent);
   color:var(--text);border-color:color-mix(in srgb,var(--accent) 30%,transparent)}
 .convo-item .convo-title{font-size:12.5px}
@@ -527,7 +527,7 @@ _CHAT_BODY = """
   border-radius:8px;padding:18px;display:flex;flex-direction:column;gap:14px;min-height:0}
 .msg{display:flex;flex-direction:column;gap:4px;max-width:78%}
 .msg .who{font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:0.5px}
-.msg .bubble{padding:10px 14px;border-radius:10px;background:rgba(255,255,255,0.04);
+.msg .bubble{padding:10px 14px;border-radius:10px;background:var(--panel-alt);
   border:1px solid var(--border);color:var(--text);font-size:13.5px;line-height:1.5;
   white-space:pre-wrap;word-break:break-word}
 .msg.user{align-self:flex-end;align-items:flex-end}

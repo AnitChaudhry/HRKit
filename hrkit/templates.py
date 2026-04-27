@@ -897,122 +897,252 @@ MODULE_NAV = [
 
 
 MODULE_CSS = r"""
-:root{--bg:#0b0d12;--panel:#11141b;--border:rgba(255,255,255,0.08);
-  --text:#e8eaed;--dim:#9aa0a6;--accent:#6366f1;--green:#10b981;--red:#f43f5e}
+/* Horilla-inspired light-default tokens. Dark mode is the toggle, applied via
+   [data-theme="dark"] on <html>. The accent is coral (horilla's brand), kept
+   identical across themes so badges and primary buttons read consistently. */
+:root{
+  --bg:#f5f6f8; --panel:#ffffff; --panel-alt:#fafbfc;
+  --border:#e5e7eb; --border-soft:#eef0f3;
+  --text:#1f2937; --dim:#6b7280; --mute:#9ca3af;
+  --accent:#ef4444; --accent-soft:rgba(239,68,68,0.10); --accent-fg:#ffffff;
+  --green:#10b981; --red:#ef4444; --amber:#f59e0b;
+  --shadow-sm:0 1px 2px rgba(15,23,42,0.04),0 1px 3px rgba(15,23,42,0.06);
+  --shadow-md:0 1px 3px rgba(15,23,42,0.05),0 4px 6px -1px rgba(15,23,42,0.05);
+  --row-hover:rgba(15,23,42,0.03);
+  --sidebar-w:240px; --topbar-h:56px;
+}
+[data-theme="dark"]{
+  --bg:#0b0d12; --panel:#11141b; --panel-alt:#0e1117;
+  --border:rgba(255,255,255,0.08); --border-soft:rgba(255,255,255,0.05);
+  --text:#e8eaed; --dim:#9aa0a6; --mute:#6b7280;
+  --accent:#ef4444; --accent-soft:rgba(239,68,68,0.18); --accent-fg:#ffffff;
+  --shadow-sm:0 1px 2px rgba(0,0,0,0.4); --shadow-md:0 4px 12px rgba(0,0,0,0.5);
+  --row-hover:rgba(255,255,255,0.04);
+}
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--text);font-family:'Inter',system-ui,sans-serif;font-size:14px}
-.app-bar{display:flex;align-items:center;gap:18px;padding:12px 24px;
-  border-bottom:1px solid var(--border);background:var(--panel);
+html,body{margin:0;background:var(--bg);color:var(--text);
+  font-family:'Inter',system-ui,-apple-system,sans-serif;font-size:14px;
+  -webkit-font-smoothing:antialiased}
+a{color:inherit}
+
+/* ---- Shell: sidebar + main column with topbar ---- */
+.app-shell{display:flex;min-height:100vh}
+.app-sidebar{width:var(--sidebar-w);background:var(--panel);
+  border-right:1px solid var(--border);
+  display:flex;flex-direction:column;position:sticky;top:0;height:100vh;
+  overflow:hidden}
+.app-sidebar-brand{padding:18px 22px;border-bottom:1px solid var(--border-soft);
+  font-weight:700;font-size:15px;letter-spacing:-0.01em}
+.app-sidebar-brand a{color:inherit;text-decoration:none;display:flex;
+  align-items:center;gap:10px}
+.app-sidebar-brand .brand-dot{width:24px;height:24px;border-radius:6px;
+  background:var(--accent);color:var(--accent-fg);display:inline-flex;
+  align-items:center;justify-content:center;font-size:13px;font-weight:700}
+.app-sidebar-section{padding:16px 12px 6px;font-size:10.5px;color:var(--mute);
+  text-transform:uppercase;letter-spacing:0.7px;font-weight:600}
+.app-sidebar-nav{padding:0 8px 18px;flex:1;overflow-y:auto;scrollbar-width:thin}
+.app-sidebar-nav a{display:flex;align-items:center;gap:10px;
+  padding:8px 12px;border-radius:6px;color:var(--dim);text-decoration:none;
+  font-size:13px;font-weight:500;line-height:1.2}
+.app-sidebar-nav a:hover{color:var(--text);background:var(--row-hover)}
+.app-sidebar-nav a.active{color:var(--accent);background:var(--accent-soft)}
+.app-sidebar-nav a .nav-ic{width:16px;text-align:center;font-size:14px;flex-shrink:0}
+.app-main{flex:1;min-width:0;display:flex;flex-direction:column}
+.app-topbar{display:flex;align-items:center;gap:14px;height:var(--topbar-h);
+  padding:0 24px;background:var(--panel);border-bottom:1px solid var(--border);
   position:sticky;top:0;z-index:10}
-.app-brand{font-weight:700;font-size:15px;letter-spacing:-0.01em}
-.app-brand a{color:inherit;text-decoration:none}
-.app-nav{display:flex;gap:4px;flex:1;overflow-x:auto;scrollbar-width:thin}
-.app-nav a{padding:6px 12px;border-radius:6px;color:var(--dim);
-  text-decoration:none;font-size:13px;white-space:nowrap}
-.app-nav a:hover{color:var(--text);background:rgba(255,255,255,0.04)}
-.app-nav a.active{color:var(--text);background:color-mix(in srgb,var(--accent) 22%,transparent)}
-.app-actions a{padding:6px 12px;border-radius:6px;color:var(--dim);
-  text-decoration:none;font-size:13px}
-.app-actions a:hover{color:var(--text)}
-.app-content{padding:24px;max-width:1400px;margin:0 auto}
-.module-toolbar{display:flex;align-items:center;gap:14px;margin-bottom:18px}
-.module-toolbar h1{margin:0;font-size:22px;font-weight:600;letter-spacing:-0.01em}
-.module-toolbar button{padding:7px 14px;border-radius:6px;background:var(--accent);
-  color:#fff;border:none;cursor:pointer;font-size:13px;font-weight:500}
-.module-toolbar button:hover{filter:brightness(1.08)}
-.module-toolbar input[type=search]{flex:1;max-width:320px;padding:7px 12px;
+.app-topbar-title{font-size:14.5px;font-weight:600;color:var(--text);flex:1;min-width:0;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.app-topbar-actions{display:flex;align-items:center;gap:6px}
+.app-topbar-actions a,.app-topbar-actions button{padding:6px 12px;border-radius:6px;
+  color:var(--dim);text-decoration:none;font-size:12.5px;font-weight:500;
+  background:transparent;border:1px solid transparent;cursor:pointer}
+.app-topbar-actions a:hover,.app-topbar-actions button:hover{color:var(--text);
+  background:var(--row-hover)}
+.app-topbar-actions a.cta{color:var(--accent);background:var(--accent-soft)}
+.theme-toggle{width:32px;height:32px;display:inline-flex;align-items:center;
+  justify-content:center;font-size:15px;border-radius:6px;color:var(--dim);
+  background:transparent;border:1px solid transparent;cursor:pointer;padding:0}
+.theme-toggle:hover{background:var(--row-hover);color:var(--text)}
+.app-content{padding:24px 28px;max-width:1400px;margin:0 auto;width:100%}
+@media (max-width:760px){
+  .app-sidebar{position:fixed;left:-240px;transition:left .2s ease;z-index:20}
+  .app-sidebar.open{left:0}
+  .app-content{padding:18px}
+}
+
+/* ---- Module toolbar (page header inside content) ---- */
+.module-toolbar{display:flex;align-items:center;gap:14px;margin-bottom:20px;
+  flex-wrap:wrap}
+.module-toolbar h1{margin:0;font-size:22px;font-weight:600;letter-spacing:-0.015em}
+.module-toolbar .crumb{font-size:11.5px;color:var(--mute);text-transform:uppercase;
+  letter-spacing:0.6px;margin-bottom:2px}
+.module-toolbar button,.btn-primary{padding:7px 14px;border-radius:6px;
+  background:var(--accent);color:var(--accent-fg);border:none;cursor:pointer;
+  font-size:13px;font-weight:500;box-shadow:var(--shadow-sm)}
+.module-toolbar button:hover,.btn-primary:hover{filter:brightness(1.05)}
+.btn-ghost{padding:7px 14px;border-radius:6px;background:transparent;
+  color:var(--text);border:1px solid var(--border);font-size:13px;font-weight:500;
+  cursor:pointer}
+.btn-ghost:hover{background:var(--row-hover);border-color:var(--dim)}
+.module-toolbar input[type=search]{flex:1;max-width:340px;padding:7px 12px;
   background:var(--panel);border:1px solid var(--border);border-radius:6px;
   color:var(--text);font-size:13px}
-.module-tabs{display:flex;gap:6px;margin-bottom:14px;border-bottom:1px solid var(--border)}
-.module-tabs a{padding:8px 14px;color:var(--dim);text-decoration:none;font-size:13px;
-  border-bottom:2px solid transparent;margin-bottom:-1px}
-.module-tabs a.tab-active,.module-tabs a:hover{color:var(--text);border-bottom-color:var(--accent)}
-.data-table{width:100%;border-collapse:collapse;background:var(--panel);
-  border:1px solid var(--border);border-radius:8px;overflow:hidden;font-size:13px}
-.data-table th,.data-table td{padding:10px 14px;text-align:left;
-  border-bottom:1px solid var(--border)}
-.data-table th{background:rgba(255,255,255,0.02);color:var(--dim);
-  font-weight:500;font-size:11.5px;text-transform:uppercase;letter-spacing:0.5px}
+.module-toolbar input[type=search]:focus{outline:none;border-color:var(--accent);
+  box-shadow:0 0 0 3px var(--accent-soft)}
+
+/* ---- Tabs ---- */
+.module-tabs{display:flex;gap:4px;margin-bottom:18px;border-bottom:1px solid var(--border)}
+.module-tabs a{padding:9px 16px;color:var(--dim);text-decoration:none;font-size:13px;
+  font-weight:500;border-bottom:2px solid transparent;margin-bottom:-1px}
+.module-tabs a.tab-active,.module-tabs a:hover{color:var(--accent);
+  border-bottom-color:var(--accent)}
+
+/* ---- Cards & data tables ---- */
+.card{background:var(--panel);border:1px solid var(--border);border-radius:10px;
+  box-shadow:var(--shadow-sm);padding:18px 20px}
+.data-table{width:100%;border-collapse:separate;border-spacing:0;
+  background:var(--panel);border:1px solid var(--border);border-radius:10px;
+  overflow:hidden;font-size:13px;box-shadow:var(--shadow-sm)}
+.data-table th,.data-table td{padding:11px 16px;text-align:left;
+  border-bottom:1px solid var(--border-soft)}
+.data-table th{background:var(--panel-alt);color:var(--dim);
+  font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:0.6px}
 .data-table tr:last-child td{border-bottom:none}
-.data-table tr:hover{background:rgba(255,255,255,0.02)}
-.data-table button{padding:4px 10px;border-radius:4px;background:transparent;
+.data-table tr:hover td{background:var(--row-hover)}
+.data-table a{color:var(--accent);text-decoration:none;font-weight:500}
+.data-table a:hover{text-decoration:underline}
+.data-table button{padding:4px 10px;border-radius:5px;background:transparent;
   border:1px solid var(--border);color:var(--dim);cursor:pointer;font-size:12px}
 .data-table button:hover{color:var(--red);border-color:var(--red)}
+.group-row td{background:var(--accent-soft);font-weight:600;color:var(--text)}
+
+/* ---- Pills / badges ---- */
+.pill{display:inline-block;padding:2px 10px;border-radius:999px;
+  font-size:11.5px;font-weight:600;background:var(--accent-soft);color:var(--accent)}
+.pill-mute{background:var(--row-hover);color:var(--dim)}
+.pill-green{background:rgba(16,185,129,0.12);color:#047857}
+[data-theme="dark"] .pill-green{color:#34d399}
+.pill-amber{background:rgba(245,158,11,0.12);color:#b45309}
+[data-theme="dark"] .pill-amber{color:#fbbf24}
+.pill-red{background:rgba(239,68,68,0.12);color:#b91c1c}
+[data-theme="dark"] .pill-red{color:#fca5a5}
+
+/* ---- Dialogs ---- */
 dialog{background:var(--panel);color:var(--text);border:1px solid var(--border);
-  border-radius:10px;padding:22px 26px;
+  border-radius:12px;padding:22px 26px;
   min-width:min(420px,90vw);width:min(720px,96vw);max-width:96vw;
-  max-height:90vh;overflow-y:auto;position:relative;box-sizing:border-box}
-dialog::backdrop{background:rgba(0,0,0,0.6)}
-dialog form{display:flex;flex-direction:column;gap:10px;max-width:100%}
-dialog label{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--dim)}
-dialog input,dialog select,dialog textarea{padding:7px 10px;background:var(--bg);
+  max-height:90vh;overflow-y:auto;position:relative;box-sizing:border-box;
+  box-shadow:var(--shadow-md)}
+dialog::backdrop{background:rgba(15,23,42,0.45)}
+[data-theme="dark"] dialog::backdrop{background:rgba(0,0,0,0.65)}
+dialog form{display:flex;flex-direction:column;gap:12px;max-width:100%}
+dialog label{display:flex;flex-direction:column;gap:4px;font-size:12px;
+  color:var(--dim);font-weight:500}
+dialog input,dialog select,dialog textarea{padding:8px 11px;background:var(--panel-alt);
   border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:13px;
-  max-width:100%;box-sizing:border-box}
+  max-width:100%;box-sizing:border-box;font-family:inherit}
+dialog input:focus,dialog select:focus,dialog textarea:focus{outline:none;
+  border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
 dialog textarea{resize:vertical;min-height:64px}
-dialog menu{display:flex;justify-content:flex-end;gap:8px;padding:0;margin:8px 0 0;list-style:none}
-dialog button{padding:7px 14px;border-radius:6px;border:1px solid var(--border);
-  background:transparent;color:var(--text);cursor:pointer;font-size:13px}
-dialog button[type=submit]{background:var(--accent);border-color:var(--accent);color:#fff}
-.dialog-close{position:absolute;top:10px;right:12px;width:28px;height:28px;
+dialog menu{display:flex;justify-content:flex-end;gap:8px;padding:0;margin:10px 0 0;
+  list-style:none}
+dialog button{padding:8px 16px;border-radius:6px;border:1px solid var(--border);
+  background:transparent;color:var(--text);cursor:pointer;font-size:13px;font-weight:500}
+dialog button:hover{background:var(--row-hover)}
+dialog button[type=submit]{background:var(--accent);border-color:var(--accent);
+  color:var(--accent-fg)}
+dialog button[type=submit]:hover{filter:brightness(1.05);background:var(--accent)}
+.dialog-close{position:absolute;top:12px;right:14px;width:30px;height:30px;
   display:flex;align-items:center;justify-content:center;border-radius:6px;
   border:1px solid transparent;background:transparent;color:var(--dim);
   cursor:pointer;font-size:18px;line-height:1;padding:0}
-.dialog-close:hover{color:var(--text);background:rgba(255,255,255,0.06);border-color:var(--border)}
-.group-row td{background:rgba(99,102,241,0.08);font-weight:600;color:var(--text)}
-.empty{padding:40px;text-align:center;color:var(--dim);font-style:italic}
+.dialog-close:hover{color:var(--text);background:var(--row-hover);border-color:var(--border)}
+
+.empty{padding:40px;text-align:center;color:var(--dim);font-style:italic;
+  background:var(--panel);border:1px dashed var(--border);border-radius:10px}
 """
 
 
 def _module_nav(active: str) -> str:
+    """Render the sidebar nav with module links grouped by category."""
     enabled = set(feature_flags.enabled_modules())
-    parts = ['<nav class="app-nav">']
+    # Map each slug to a single-glyph icon. Keep ASCII-safe for cp1252 consoles.
+    ICONS = {
+        "department": "#", "employee": "@", "role": "*",
+        "document": "D", "leave": "L", "attendance": "A",
+        "payroll": "$", "performance": "%", "onboarding": "O",
+        "exit_record": "X", "recruitment": "R",
+    }
+    parts = ['<nav class="app-sidebar-nav">']
+    parts.append('<div class="app-sidebar-section">Workspace</div>')
+    parts.append('<a href="/" class="' + ('active' if active == 'home' else '') + '">'
+                 '<span class="nav-ic">~</span>Home</a>')
+    parts.append('<div class="app-sidebar-section">HR Modules</div>')
     for slug, label in MODULE_NAV:
         if slug not in enabled:
             continue
-        cls = " active" if slug == active else ""
-        parts.append(f'<a href="/m/{slug}" class="{cls.strip()}">{_e(label)}</a>')
+        cls = "active" if slug == active else ""
+        ic = ICONS.get(slug, "-")
+        parts.append(
+            f'<a href="/m/{slug}" class="{cls}">'
+            f'<span class="nav-ic">{ic}</span>{_e(label)}</a>'
+        )
+    parts.append('<div class="app-sidebar-section">Tools</div>')
+    parts.append('<a href="/chat"><span class="nav-ic">+</span>AI Chat</a>')
+    parts.append('<a href="/recipes"><span class="nav-ic">/</span>Recipes</a>')
+    parts.append('<a href="/integrations"><span class="nav-ic">o</span>Integrations</a>')
+    parts.append('<a href="/settings"><span class="nav-ic">.</span>Settings</a>')
     parts.append("</nav>")
     return "".join(parts)
 
 
 HOME_CSS = r"""
-.home-hero{padding:30px 24px;border:1px solid var(--border);border-radius:10px;
-  background:linear-gradient(135deg,color-mix(in srgb,var(--accent) 14%,var(--panel)),var(--panel));
-  margin-bottom:22px}
-.home-hero h1{margin:0 0 6px;font-size:26px;letter-spacing:-0.02em}
+.home-hero{padding:28px 26px;border:1px solid var(--border);border-radius:12px;
+  background:linear-gradient(135deg,var(--accent-soft),var(--panel));
+  margin-bottom:24px;box-shadow:var(--shadow-sm)}
+.home-hero h1{margin:0 0 6px;font-size:26px;letter-spacing:-0.02em;font-weight:700}
 .home-hero p{margin:0;color:var(--dim);font-size:14px}
-.home-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:22px}
+.home-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:24px}
 @media (max-width:760px){.home-stats{grid-template-columns:repeat(2,1fr)}}
-.home-stat{padding:18px;border:1px solid var(--border);border-radius:10px;
+.home-stat{padding:18px 20px;border:1px solid var(--border);border-radius:12px;
   background:var(--panel);text-decoration:none;color:inherit;display:block;
-  transition:border-color .15s ease}
-.home-stat:hover{border-color:var(--accent)}
-.home-stat .v{font-size:28px;font-weight:600;letter-spacing:-0.02em;display:block}
+  box-shadow:var(--shadow-sm);transition:box-shadow .15s ease,border-color .15s ease}
+.home-stat:hover{border-color:var(--accent);box-shadow:var(--shadow-md)}
+.home-stat .v{font-size:28px;font-weight:700;letter-spacing:-0.02em;display:block;
+  color:var(--text)}
 .home-stat .k{font-size:11.5px;color:var(--dim);text-transform:uppercase;
-  letter-spacing:0.5px;margin-top:4px;display:block}
-.home-section-title{font-size:13px;color:var(--dim);text-transform:uppercase;
-  letter-spacing:0.6px;margin:24px 0 12px;font-weight:600}
+  letter-spacing:0.6px;margin-top:4px;display:block;font-weight:600}
+.home-section-title{font-size:11.5px;color:var(--mute);text-transform:uppercase;
+  letter-spacing:0.7px;margin:24px 0 12px;font-weight:600}
 .home-quick{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:6px}
-.home-quick a{padding:9px 14px;border-radius:6px;background:var(--accent);color:#fff;
-  text-decoration:none;font-size:13px;font-weight:500}
-.home-quick a:hover{filter:brightness(1.1)}
-.home-quick a.ghost{background:transparent;border:1px solid var(--border);color:var(--text)}
-.home-mods{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.home-quick a{padding:9px 14px;border-radius:7px;background:var(--accent);
+  color:var(--accent-fg);text-decoration:none;font-size:13px;font-weight:500;
+  box-shadow:var(--shadow-sm)}
+.home-quick a:hover{filter:brightness(1.05)}
+.home-quick a.ghost{background:var(--panel);border:1px solid var(--border);
+  color:var(--text);box-shadow:none}
+.home-quick a.ghost:hover{background:var(--row-hover);border-color:var(--dim)}
+.home-mods{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
 @media (max-width:900px){.home-mods{grid-template-columns:repeat(2,1fr)}}
 @media (max-width:560px){.home-mods{grid-template-columns:1fr}}
-.home-mod{padding:16px;border:1px solid var(--border);border-radius:10px;
+.home-mod{padding:18px;border:1px solid var(--border);border-radius:12px;
   background:var(--panel);text-decoration:none;color:inherit;
-  transition:border-color .15s ease,transform .15s ease;display:block}
-.home-mod:hover{border-color:var(--accent);transform:translateY(-1px)}
+  box-shadow:var(--shadow-sm);
+  transition:border-color .15s ease,box-shadow .15s ease,transform .15s ease;
+  display:block}
+.home-mod:hover{border-color:var(--accent);box-shadow:var(--shadow-md);
+  transform:translateY(-1px)}
 .home-mod-head{display:flex;gap:8px;align-items:center;margin-bottom:6px}
-.home-mod-label{font-weight:600;font-size:14px}
-.home-mod-cat{font-size:9.5px;padding:2px 6px;border-radius:3px;text-transform:uppercase;
-  letter-spacing:0.5px;background:rgba(255,255,255,0.05);color:var(--dim)}
-.home-mod-cat-core{background:rgba(99,102,241,0.18);color:#a5b4fc}
-.home-mod-cat-hiring{background:rgba(245,158,11,0.18);color:#fcd34d}
-.home-mod-desc{font-size:12px;color:var(--dim);line-height:1.45}
+.home-mod-label{font-weight:600;font-size:14px;color:var(--text)}
+.home-mod-cat{font-size:9.5px;padding:2px 8px;border-radius:999px;text-transform:uppercase;
+  letter-spacing:0.6px;font-weight:600;background:var(--row-hover);color:var(--dim)}
+.home-mod-cat-core{background:var(--accent-soft);color:var(--accent)}
+.home-mod-cat-hiring{background:rgba(245,158,11,0.14);color:#b45309}
+[data-theme="dark"] .home-mod-cat-hiring{color:#fcd34d}
+.home-mod-desc{font-size:12px;color:var(--dim);line-height:1.5}
 .home-empty{padding:30px;text-align:center;color:var(--dim);font-style:italic;
-  border:1px dashed var(--border);border-radius:10px}
+  border:1px dashed var(--border);border-radius:12px;background:var(--panel)}
 .fs-panel{border:1px solid var(--border);border-radius:10px;background:var(--panel);
   padding:14px 16px;margin-top:10px}
 .fs-head{display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap}
@@ -1236,6 +1366,7 @@ def render_module_page(*, title: str, nav_active: str, body_html: str) -> str:
         '<a href="/m/recruitment/board">Board</a>'
         if "recruitment" in enabled else ""
     )
+    initial = (name[:1] or "H").upper()
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1245,22 +1376,58 @@ def render_module_page(*, title: str, nav_active: str, body_html: str) -> str:
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>{MODULE_CSS}</style>
+<script>
+  // Apply persisted theme before paint to avoid flash. Light is the default.
+  (function() {{
+    try {{
+      var t = localStorage.getItem('hrkit-theme');
+      if (t === 'dark' || t === 'light') {{
+        document.documentElement.setAttribute('data-theme', t);
+      }}
+    }} catch (e) {{}}
+  }})();
+</script>
 </head>
 <body>
-<header class="app-bar">
-  <div class="app-brand"><a href="/">{_e(name)}</a></div>
-  {_module_nav(nav_active)}
-  <div class="app-actions">
-    {board_link}
-    <a href="/chat">AI Chat</a>
-    <a href="/recipes">Recipes</a>
-    <a href="/integrations">Integrations</a>
-    <a href="/settings">Settings</a>
+<div class="app-shell">
+<aside class="app-sidebar">
+  <div class="app-sidebar-brand">
+    <a href="/"><span class="brand-dot">{_e(initial)}</span>{_e(name)}</a>
   </div>
-</header>
-<main class="app-content">
+  {_module_nav(nav_active)}
+</aside>
+<div class="app-main">
+  <header class="app-topbar">
+    <div class="app-topbar-title">{_e(title)}</div>
+    <div class="app-topbar-actions">
+      {board_link}
+      <button type="button" class="theme-toggle" id="hrkit-theme-toggle"
+              aria-label="Toggle theme" title="Toggle light/dark">o</button>
+    </div>
+  </header>
+  <main class="app-content">
 {body_html}
-</main>
+  </main>
+</div>
+</div>
+<script>
+  (function() {{
+    var btn = document.getElementById('hrkit-theme-toggle');
+    if (!btn) return;
+    function current() {{
+      return document.documentElement.getAttribute('data-theme') || 'light';
+    }}
+    function setTheme(t) {{
+      document.documentElement.setAttribute('data-theme', t);
+      try {{ localStorage.setItem('hrkit-theme', t); }} catch (e) {{}}
+      btn.textContent = t === 'dark' ? '*' : 'o';
+    }}
+    btn.textContent = current() === 'dark' ? '*' : 'o';
+    btn.addEventListener('click', function() {{
+      setTheme(current() === 'dark' ? 'light' : 'dark');
+    }});
+  }})();
+</script>
 <script>
 // Auto-augment every <dialog> on the page with a × close button, click-outside-
 // to-close, and an Esc-to-close shortcut. Native <dialog> already supports Esc

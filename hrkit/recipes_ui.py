@@ -209,7 +209,7 @@ _PAGE_BODY = r"""
   position:sticky;top:0;background:var(--bg);z-index:1}
 .tool-row{display:flex;gap:8px;align-items:flex-start;padding:6px 8px;border-radius:5px;
   cursor:pointer;font-size:12.5px}
-.tool-row:hover{background:rgba(255,255,255,0.04)}
+.tool-row:hover{background:var(--row-hover)}
 .tool-row input{margin-top:3px;flex-shrink:0}
 .tool-row .tn{font-weight:500;color:var(--text)}
 .tool-row .ts{font-family:'JetBrains Mono','Menlo',monospace;font-size:10.5px;color:var(--mute)}
