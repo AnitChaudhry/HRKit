@@ -286,7 +286,7 @@ def render_settings_page(conn) -> str:
         <label for="ai_provider">AI Provider</label>
         <select id="ai_provider" name="ai_provider">
           <option value="openrouter"{or_selected}>OpenRouter</option>
-          <option value="upfyn"{up_selected}>Upfyn</option>
+          <option value="upfyn"{up_selected}>UpfynAI</option>
         </select>
       </div>
       <div class="field">
@@ -335,9 +335,8 @@ def render_settings_page(conn) -> str:
             CSV exports under <code>exports/</code>, employee-scoped notes
             under <code>employees/&lt;EMP-CODE&gt;/</code>.</li>
           <li><code>web_search</code> / <code>web_fetch</code> — live web lookups.</li>
-          <li>Composio actions (<code>send_email</code>, <code>create_calendar_event</code>,
-            <code>upload_to_drive</code>, <code>send_signature_request</code>) —
-            exposed automatically when a Composio key is configured.</li>
+          <li>Composio tools and MCP/meta tools — exposed automatically when a
+            Composio key is configured and controlled from <code>/integrations</code>.</li>
           <li>Any user-defined recipe under <code>recipes/</code>.</li>
         </ul>
       </div>
@@ -496,9 +495,17 @@ def render_settings_page(conn) -> str:
           : "No models returned by the provider.";
         return;
       }}
-      const free = j.models.filter(function(m) {{ return m.free; }})
+      const allModels = j.models;
+      const chatModels = allModels.filter(function(m) {{ return m.chat_compatible !== false; }});
+      const hiddenNonChat = allModels.length - chatModels.length;
+      if (!chatModels.length) {{
+        if (hintEl) hintEl.textContent =
+          "Provider returned models, but none are text/chat compatible. Voice/audio models are not valid for the HR assistant.";
+        return;
+      }}
+      const free = chatModels.filter(function(m) {{ return m.free; }})
         .sort(function(a, b) {{ return String(a.id).localeCompare(String(b.id)); }});
-      const paid = j.models.filter(function(m) {{ return !m.free; }})
+      const paid = chatModels.filter(function(m) {{ return !m.free; }})
         .sort(function(a, b) {{ return String(a.id).localeCompare(String(b.id)); }});
 
       function fmtOption(m) {{
@@ -509,7 +516,7 @@ def render_settings_page(conn) -> str:
 
       const opts = ['<option value="">(provider default — free)</option>'];
       // Pin the saved value if the catalog doesn't list it.
-      const haveCurrent = current && j.models.some(function(m) {{ return m.id === current; }});
+      const haveCurrent = current && chatModels.some(function(m) {{ return m.id === current; }});
       if (current && !haveCurrent) {{
         opts.push('<option value="' + current + '" selected>' + current + ' (saved)</option>');
       }}
@@ -536,10 +543,12 @@ def render_settings_page(conn) -> str:
           hintEl.innerHTML =
             '<strong style="color:var(--ok)">' + free.length + ' free</strong> + ' +
             paid.length + ' paid models from ' + provider + '. ' +
-            'Pick anything in the ★ group to use HR-Kit at zero cost.';
+            'Pick anything in the ★ group to use HR-Kit at zero cost.' +
+            (hiddenNonChat ? (' Hidden from chat picker: ' + hiddenNonChat + ' voice/audio model(s).') : '');
         }} else {{
           hintEl.textContent = paid.length + ' models from ' + provider +
-            '. (No free tier detected — try OpenRouter for free models.)';
+            '. (No free tier detected — try OpenRouter for free models.)' +
+            (hiddenNonChat ? (' Hidden from chat picker: ' + hiddenNonChat + ' voice/audio model(s).') : '');
         }}
       }}
     }} catch (err) {{

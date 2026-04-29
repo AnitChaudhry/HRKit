@@ -80,6 +80,13 @@ def test_render_wizard_page_includes_5_steps(conn):
     assert "wm-grid" in html
     assert 'data-slug="employee"' in html
     assert 'data-slug="recruitment"' in html
+    assert 'data-back="1"' in html
+    assert 'data-back="4"' in html
+    assert "UpfynAI" in html
+    assert "step-label-2" in html
+    assert "First employee" in html
+    assert "chat models available" in html
+    assert "voice/audio model hidden" in html
     # Final redirect target.
     assert "/m/employee" in html
 

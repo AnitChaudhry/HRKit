@@ -5,6 +5,20 @@ from __future__ import annotations
 import importlib
 
 
+class _FakeServer:
+    def __init__(self, conn) -> None:
+        self.conn = conn
+
+
+class _FakeHandler:
+    def __init__(self, conn) -> None:
+        self.server = _FakeServer(conn)
+        self.html_responses: list[tuple[int, str]] = []
+
+    def _html(self, code: int, body: str) -> None:
+        self.html_responses.append((code, body))
+
+
 def test_department_create_list_delete(conn):
     mod = importlib.import_module("hrkit.modules.department")
 
@@ -45,3 +59,31 @@ def test_department_module_contract(conn):
     assert mod.MODULE["name"] == "department"
     assert "GET" in mod.MODULE["routes"]
     mod.MODULE["ensure_schema"](conn)
+
+
+def test_department_list_and_detail_have_real_edit_controls(conn):
+    mod = importlib.import_module("hrkit.modules.department")
+    parent_id = mod.create_row(conn, {"name": "People Ops", "code": "POPS"})
+    child_id = mod.create_row(conn, {
+        "name": "Recruitment",
+        "code": "REC",
+        "parent_department_id": parent_id,
+    })
+
+    h = _FakeHandler(conn)
+    mod.list_view(h)
+    code, body = h.html_responses[0]
+    assert code == 200
+    assert f'/m/department/{child_id}' in body
+    assert ">Open<" in body
+
+    h = _FakeHandler(conn)
+    mod.detail_view(h, child_id)
+    code, body = h.html_responses[0]
+    assert code == 200
+    assert "Department controls" in body
+    assert "dept-parent-picker" in body
+    assert 'name="name"' in body
+    assert 'name="code"' in body
+    assert 'name="head_employee"' not in body
+    assert 'name="parent_department"' not in body

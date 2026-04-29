@@ -99,8 +99,10 @@ def ensure_employee_layout(workspace_root: str | Path, employee_code: str) -> Pa
 # ---------------------------------------------------------------------------
 _EMPLOYEE_MD_FIELDS: tuple[str, ...] = (
     "employee_code", "full_name", "email", "phone",
+    "dob", "gender", "marital_status",
     "status", "department_id", "role_id", "manager_id",
     "hire_date", "employment_type", "location",
+    "salary_minor", "photo_path",
 )
 
 
@@ -178,11 +180,7 @@ def write_employee_md_for_id(
     employee_id: int,
 ) -> Path | None:
     """Convenience: load the row by id and call :func:`write_employee_md`."""
-    row = conn.execute(
-        f"SELECT id, {', '.join(_EMPLOYEE_MD_FIELDS)} "
-        "FROM employee WHERE id = ?",
-        (int(employee_id),),
-    ).fetchone()
+    row = conn.execute("SELECT * FROM employee WHERE id = ?", (int(employee_id),)).fetchone()
     if not row:
         return None
     payload = {k: row[k] for k in row.keys()}

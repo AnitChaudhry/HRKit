@@ -1873,6 +1873,21 @@ DETAIL_CSS = r"""
 .detail-section table{width:100%;border-collapse:collapse;font-size:13px}
 .detail-section td,.detail-section th{padding:8px 10px;text-align:left;border-bottom:1px solid var(--border)}
 .detail-section tr:last-child td{border-bottom:none}
+#edit-dlg{width:min(760px,96vw);border:1px solid var(--border);border-radius:12px;
+  padding:0;background:var(--panel);color:var(--text);
+  box-shadow:var(--shadow-md,0 18px 60px rgba(0,0,0,.25))}
+#edit-dlg::backdrop{background:rgba(0,0,0,.45)}
+#edit-dlg form{padding:18px;display:grid;gap:12px}
+#edit-dlg .edit-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px}
+#edit-dlg label{display:flex;flex-direction:column;gap:5px;color:var(--dim);font-size:12px}
+#edit-dlg input,#edit-dlg select,#edit-dlg textarea{width:100%;padding:8px 10px;
+  border:1px solid var(--border);border-radius:7px;background:var(--bg);
+  color:var(--text);font:inherit;font-size:13px}
+#edit-dlg textarea{min-height:96px;resize:vertical;line-height:1.45}
+#edit-dlg menu{display:flex;justify-content:flex-end;gap:8px;margin:4px 0 0;padding:0}
+#edit-dlg details{border:1px dashed var(--border);border-radius:8px;padding:10px 12px}
+#edit-dlg summary{cursor:pointer;color:var(--dim);font-size:12px;font-weight:600}
+#edit-dlg .edit-hint{color:var(--dim);font-size:12px;line-height:1.45}
 """
 
 
@@ -1889,6 +1904,7 @@ def render_detail_page(
     delete_redirect: str = "",
     field_options: dict[str, list[str]] | None = None,
     exclude_edit_fields: set[str] | None = None,
+    edit_field_names: dict[str, str] | None = None,
 ) -> str:
     """Render a consistent HTML detail page for any module record.
 
@@ -1922,7 +1938,7 @@ def render_detail_page(
     edit_script = ""
     if item_id is not None and api_path and delete_redirect:
         edit_btn = (
-            "<button onclick=\"document.getElementById('edit-dlg').showModal()\">Edit</button>"
+            "<button onclick=\"openEditDialog()\">Edit</button>"
         )
         delete_btn = (
             f"<button class=\"danger\" onclick=\"deleteRecord({int(item_id)})\">Delete</button>"
@@ -1931,31 +1947,121 @@ def render_detail_page(
         datalists: list[str] = []
         seen_lists: set[str] = set()
         opt_map = field_options or {}
-        skip = exclude_edit_fields or set()
+        default_skip = {
+            "id", "created", "updated", "created_at", "updated_at",
+            "submitted_at", "approved_at", "responded_at", "completed_at",
+            "assigned_at", "returned_at", "occurred_at",
+            "uploaded_at", "generated_at", "settled_at", "disbursed_at",
+            "employee", "employee_name", "reviewer", "reviewer_name",
+            "approver", "approver_name", "department", "role", "manager",
+            "project", "parent", "head_employee", "parent_department",
+            "holder", "mentor", "mentee", "candidate", "leave_type",
+            "hours_logged",
+        }
+        skip = default_skip | (exclude_edit_fields or set())
+        name_map = edit_field_names or {}
+
+        def _control_html(
+            *,
+            label: str,
+            field_name: str,
+            value: Any,
+            slug: str,
+            opts: list[str] | None,
+        ) -> str:
+            raw_value = "" if value is None else value
+            field_lower = field_name.lower()
+            label_html = _e(label)
+            name_html = _e(field_name)
+            value_html = _e(raw_value)
+            if opts:
+                seen = {str(o) for o in opts}
+                options = []
+                if str(raw_value) not in seen and str(raw_value):
+                    options.append(
+                        f'<option value="{value_html}" selected>{value_html}</option>'
+                    )
+                options.extend(
+                    f'<option value="{_e(o)}"{" selected" if str(raw_value) == str(o) else ""}>{_e(o)}</option>'
+                    for o in opts
+                )
+                return (
+                    f'<label>{label_html}<select name="{name_html}" '
+                    f'data-edit-field="{name_html}">{"".join(options)}</select></label>'
+                )
+            multiline_tokens = (
+                "json", "notes", "comment", "description", "reason", "body",
+                "agenda", "action", "summary", "breakdown", "schedule",
+            )
+            if any(token in field_lower for token in multiline_tokens):
+                return (
+                    f'<label>{label_html}<textarea name="{name_html}" '
+                    f'data-edit-field="{name_html}">{value_html}</textarea></label>'
+                )
+            input_type = "text"
+            number_names = {
+                "hours", "days", "score", "amount", "rate", "rate_percent",
+                "surcharge_percent", "duration_minutes", "notice_period_days",
+                "mileage_start", "mileage_end",
+            }
+            if (
+                field_lower == "date"
+                or field_lower.endswith("_date")
+                or field_lower in {"dob", "hire_date", "fy_start", "last_working_day"}
+            ):
+                input_type = "date"
+            elif (
+                field_lower.endswith("_id")
+                or field_lower.endswith("_minor")
+                or field_lower in number_names
+            ):
+                input_type = "number"
+            step_attr = (
+                ' step="any"'
+                if input_type == "number" and field_lower in {"hours", "score", "rate_percent", "surcharge_percent"}
+                else ""
+            )
+            return (
+                f'<label>{label_html}<input name="{name_html}" '
+                f'data-edit-field="{name_html}" type="{input_type}"{step_attr} '
+                f'value="{value_html}"></label>'
+            )
+
         for label, value in (fields or []):
             slug = _re.sub(r"[^a-z0-9_]+", "_", str(label).lower()).strip("_")
-            if not slug or slug in skip:
+            field_name = str(name_map.get(slug, slug)).strip() or slug
+            if not slug or slug in skip or field_name in skip:
                 continue
-            opts = opt_map.get(slug)
-            list_attr = ""
-            if opts:
-                list_id = f"opts-{slug}"
-                list_attr = f' list="{list_id}"'
-                if list_id not in seen_lists:
-                    options_html = "".join(
-                        f'<option value="{_e(o)}">' for o in opts
-                    )
-                    datalists.append(f'<datalist id="{list_id}">{options_html}</datalist>')
-                    seen_lists.add(list_id)
+            opts = opt_map.get(slug) or opt_map.get(field_name)
             form_inputs.append(
-                f'<label>{_e(label)}<input name="{_e(slug)}"{list_attr} '
-                f'value="{_e("" if value is None else value)}"></label>'
+                _control_html(
+                    label=str(label),
+                    field_name=field_name,
+                    value=value,
+                    slug=slug,
+                    opts=opts,
+                )
             )
+        readonly_json = json.dumps(sorted(skip))
         edit_dialog = f"""
 {''.join(datalists)}
 <dialog id="edit-dlg">
   <form onsubmit="submitEdit(event)">
-    {''.join(form_inputs)}
+    <div class="edit-hint">
+      Edit the regular fields below, or open advanced raw fields for IDs and
+      module-specific values loaded directly from the API.
+    </div>
+    <div class="edit-grid">{''.join(form_inputs)}</div>
+    <details>
+      <summary>Advanced raw fields</summary>
+      <div class="edit-hint" style="margin:8px 0">
+        These are the record's API fields. Use them when HR needs direct control
+        over IDs, amounts, metadata, or fields not shown in the summary.
+      </div>
+      <div class="edit-grid" id="edit-advanced-fields">
+        <div class="edit-hint">Open Edit to load raw fields.</div>
+      </div>
+    </details>
     <menu>
       <button type="button" onclick="this.closest('dialog').close()">Cancel</button>
       <button type="submit">Save</button>
@@ -1964,6 +2070,91 @@ def render_detail_page(
 </dialog>"""
         edit_script = f"""
 <script>
+const EDIT_READONLY_FIELDS = new Set({readonly_json});
+function openEditDialog() {{
+  const dlg = document.getElementById('edit-dlg');
+  hydrateEditDialog();
+  dlg.showModal();
+}}
+function editEsc(v) {{
+  return String(v == null ? '' : v)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}}
+function editLabel(name) {{
+  return String(name || '').replace(/_/g, ' ').replace(/\\b\\w/g, function(c) {{
+    return c.toUpperCase();
+  }});
+}}
+function editValue(value) {{
+  if (value == null) return '';
+  if (typeof value === 'object') return JSON.stringify(value, null, 2);
+  return String(value);
+}}
+function editControl(name, value) {{
+  const lower = String(name || '').toLowerCase();
+  const val = editEsc(editValue(value));
+  const label = editEsc(editLabel(name));
+  const field = editEsc(name);
+  if (typeof value === 'boolean' || value === 0 || value === 1) {{
+    const yes = value === true || value === 1 || value === '1';
+    return '<label>' + label + '<select name="' + field + '" data-edit-field="' + field + '">' +
+      '<option value="1"' + (yes ? ' selected' : '') + '>Yes</option>' +
+      '<option value="0"' + (!yes ? ' selected' : '') + '>No</option>' +
+      '</select></label>';
+  }}
+  if (/json|notes?|comments?|description|reason|body|agenda|action|summary|breakdown|schedule/.test(lower)) {{
+    return '<label>' + label + '<textarea name="' + field + '" data-edit-field="' + field + '">' +
+      val + '</textarea></label>';
+  }}
+  let type = 'text';
+  let step = '';
+  if (lower === 'date' || /_date$/.test(lower) || ['dob','hire_date','fy_start','last_working_day'].includes(lower)) {{
+    type = 'date';
+  }} else if (/_id$|_minor$/.test(lower) || ['hours','days','score','amount','rate_percent','surcharge_percent','duration_minutes','notice_period_days'].includes(lower)) {{
+    type = 'number';
+    if (['hours','score','rate_percent','surcharge_percent'].includes(lower)) step = ' step="any"';
+  }}
+  return '<label>' + label + '<input name="' + field + '" data-edit-field="' + field +
+    '" type="' + type + '"' + step + ' value="' + val + '"></label>';
+}}
+async function hydrateEditDialog() {{
+  const dlg = document.getElementById('edit-dlg');
+  if (!dlg || dlg.dataset.loaded === '1') return;
+  const rawWrap = document.getElementById('edit-advanced-fields');
+  try {{
+    const r = await fetch('{api_path}/{int(item_id)}', {{headers: {{'Accept': 'application/json'}}}});
+    if (!r.ok) return;
+    const data = await r.json();
+    const existing = new Set();
+    dlg.querySelectorAll('[data-edit-field]').forEach(function(el) {{
+      const name = el.getAttribute('name');
+      if (!name) return;
+      existing.add(name);
+      if (Object.prototype.hasOwnProperty.call(data, name)) {{
+        const value = editValue(data[name]);
+        if (el.tagName === 'SELECT') {{
+          el.value = String(data[name] == null ? '' : data[name]);
+        }} else {{
+          el.value = value;
+        }}
+      }}
+    }});
+    if (rawWrap && data && typeof data === 'object') {{
+      const parts = [];
+      Object.keys(data).sort().forEach(function(name) {{
+        if (existing.has(name) || EDIT_READONLY_FIELDS.has(name)) return;
+        parts.push(editControl(name, data[name]));
+      }});
+      rawWrap.innerHTML = parts.length ? parts.join('') :
+        '<div class="edit-hint">No extra raw fields are available for this record.</div>';
+    }}
+    dlg.dataset.loaded = '1';
+  }} catch (err) {{
+    if (rawWrap) rawWrap.innerHTML = '<div class="edit-hint">Could not load raw fields.</div>';
+  }}
+}}
 async function submitEdit(ev) {{
   ev.preventDefault();
   const fd = new FormData(ev.target);

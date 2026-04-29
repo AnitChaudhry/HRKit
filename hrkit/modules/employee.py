@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import sqlite3
+from pathlib import Path
 from typing import Any
 
 log = logging.getLogger(__name__)
@@ -82,8 +83,27 @@ def _coerce_salary_minor(payload: dict[str, Any]) -> int | None:
     if "salary_minor" in payload and payload["salary_minor"] not in (None, ""):
         return int(payload["salary_minor"])
     if "salary" in payload and payload["salary"] not in (None, ""):
-        # Rupees -> paise (cents). Use round to avoid float drift.
-        rupees = float(payload["salary"])
+        # Rupees -> paise. Accept the formatted display value too, e.g.
+        # "₹95,000.00", because the generic edit dialog reuses display text.
+        salary_text = str(payload["salary"]).strip().replace(",", "")
+        candidates: list[str] = []
+        buf: list[str] = []
+        for ch in salary_text:
+            if ch.isdigit() or ch == ".":
+                buf.append(ch)
+            elif buf:
+                candidates.append("".join(buf))
+                buf = []
+        if buf:
+            candidates.append("".join(buf))
+        salary_text = max(
+            candidates,
+            key=lambda value: sum(1 for ch in value if ch.isdigit()),
+            default="",
+        )
+        if not salary_text or not any(ch.isdigit() for ch in salary_text):
+            return None
+        rupees = float(salary_text)
         return int(round(rupees * 100))
     return None
 
@@ -208,6 +228,12 @@ def update_row(conn: sqlite3.Connection, item_id: int, data: dict[str, Any]) -> 
     )
     for key in simple:
         if key in data:
+            if key in ("department_id", "role_id", "manager_id"):
+                value = data[key]
+                value = int(value) if value not in (None, "") else None
+                fields.append(f"{key} = ?")
+                values.append(value)
+                continue
             fields.append(f"{key} = ?")
             values.append(data[key])
     if "salary_minor" in data or "salary" in data:
@@ -323,7 +349,11 @@ def _render_list_html(rows: list[dict[str, Any]],
         cells = "".join(f"<td>{_esc(row.get(c))}</td>" for c in LIST_COLUMNS)
         body_rows.append(
             f'<tr data-id="{row["id"]}">{cells}'
-            f'<td><button onclick="deleteRow({row["id"]})">Delete</button></td></tr>'
+            f'<td style="display:flex;gap:8px;align-items:center">'
+            f'<a href="/m/employee/{row["id"]}" '
+            f'style="padding:6px 12px;border:1px solid var(--border);border-radius:6px;'
+            f'color:var(--text);text-decoration:none;font-size:12px">Open</a>'
+            f'<button onclick="deleteRow({row["id"]})">Delete</button></td></tr>'
         )
     dept_opts = "".join(
         f'<option value="{d["id"]}">{_esc(d["label"])}</option>' for d in depts
@@ -346,7 +376,7 @@ def _render_list_html(rows: list[dict[str, Any]],
   <input type="search" placeholder="Search..." oninput="filter(this.value)">
 </div>
 <table class="data-table">
-  <thead><tr>{head}<th></th></tr></thead>
+  <thead><tr>{head}<th>Actions</th></tr></thead>
   <tbody id="rows">{''.join(body_rows)}</tbody>
 </table>
 <dialog id="create-dlg">
@@ -421,6 +451,20 @@ def _format_salary_minor(value: Any) -> str:
     rupees = paise / 100.0
     # Indian-style grouping is overkill here; use plain comma grouping.
     return f"₹{rupees:,.2f}"
+
+
+def _count_entries(path: Path) -> int:
+    try:
+        return sum(1 for _ in path.iterdir())
+    except OSError:
+        return 0
+
+
+def _relative_workspace_path(workspace_root: Path, target: Path) -> str:
+    try:
+        return target.relative_to(workspace_root).as_posix()
+    except ValueError:
+        return target.as_posix()
 
 
 def detail_api_json(handler, item_id: int) -> None:
@@ -641,6 +685,82 @@ async function saveNotes(empId) {{
 </script>
 """
 
+    workspace_root = _workspace_root_for(handler)
+    workspace_body = (
+        '<div class="empty">Workspace folder controls are unavailable until the '
+        'local workspace is loaded.</div>'
+    )
+    employee_code = str(row.get("employee_code") or "").strip()
+    if workspace_root is not None and employee_code:
+        employee_dir = _efs.ensure_employee_layout(workspace_root, employee_code)
+        try:
+            _efs.write_employee_md(workspace_root, row)
+        except OSError:
+            pass
+        docs_dir = _efs.documents_dir(workspace_root, employee_code)
+        legal_dir = _efs.legal_dir(workspace_root, employee_code)
+        convo_dir = _efs.conversations_dir(workspace_root, employee_code)
+        memory_dir = _efs.memory_dir(workspace_root, employee_code)
+        employee_md_path = employee_dir / "employee.md"
+        employee_dir_rel = _relative_workspace_path(workspace_root, employee_dir)
+        cards = [
+            ("Employee folder", employee_dir_rel, "Profile file plus every HR artifact for this employee."),
+            ("employee.md", _relative_workspace_path(workspace_root, employee_md_path),
+             "Mirrored automatically from the employee profile."),
+            ("Documents", _relative_workspace_path(workspace_root, docs_dir),
+             f"{_count_entries(docs_dir)} file(s)"),
+            ("Legal", _relative_workspace_path(workspace_root, legal_dir),
+             f"{_count_entries(legal_dir)} file(s)"),
+            ("Conversations", _relative_workspace_path(workspace_root, convo_dir),
+             f"{_count_entries(convo_dir)} file(s)"),
+            ("Memory", _relative_workspace_path(workspace_root, memory_dir),
+             f"{_count_entries(memory_dir)} file(s)"),
+        ]
+        card_html = "".join(
+            f'<div class="wk-card"><div class="wk-label">{_esc(label)}</div>'
+            f'<div class="wk-path"><code>{_esc(path)}</code></div>'
+            f'<div class="wk-meta">{_esc(meta)}</div></div>'
+            for label, path, meta in cards
+        )
+        workspace_body = f"""
+<style>
+  .wk-actions{{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}}
+  .wk-actions button{{padding:6px 12px;border-radius:6px;background:var(--accent);
+    color:#fff;border:none;cursor:pointer;font-size:12px}}
+  .wk-actions button.ghost{{background:transparent;border:1px solid var(--border);color:var(--dim)}}
+  .wk-grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px}}
+  .wk-card{{padding:12px;border:1px solid var(--border);border-radius:8px;background:var(--panel)}}
+  .wk-label{{font-weight:600;margin-bottom:6px}}
+  .wk-path{{font-size:12px;margin-bottom:6px;word-break:break-word}}
+  .wk-path code{{background:var(--bg);padding:2px 6px;border-radius:4px}}
+  .wk-meta{{font-size:12px;color:var(--dim);line-height:1.45}}
+</style>
+<div class="wk-actions">
+  <button onclick="openWorkspacePath('{_esc(employee_dir_rel)}')">Open employee folder</button>
+  <button class="ghost" onclick="openWorkspacePath('{_esc(_relative_workspace_path(workspace_root, docs_dir))}')">Open documents</button>
+  <button class="ghost" onclick="openWorkspacePath('{_esc(_relative_workspace_path(workspace_root, memory_dir))}')">Open memory</button>
+</div>
+<div class="wk-grid">{card_html}</div>
+<p style="margin:12px 0 0;color:var(--dim);font-size:12px">
+  This gives HR direct control over the employee's local folder on this laptop. Update the employee record here and the mirrored
+  <code>employee.md</code> file stays current for exports, AI context, and manual review.
+</p>
+<script>
+async function openWorkspacePath(relPath) {{
+  const r = await fetch('/api/workspace/open', {{
+    method: 'POST',
+    headers: {{'Content-Type': 'application/json'}},
+    body: JSON.stringify({{path: relPath}})
+  }});
+  if (!r.ok) {{
+    let err = 'Could not open folder';
+    try {{ const j = await r.json(); err = j.error || err; }} catch (e) {{}}
+    hrkit.toast(err, 'error');
+  }}
+}}
+</script>
+"""
+
     # Reporting structure: department/role/manager pickers + direct reports.
     depts = _list_options(conn, "department", "name")
     roles = _list_options(conn, "role", "title")
@@ -729,7 +849,8 @@ async function saveAssignment(empId, field, pickerId) {{
 """
 
     related_html = (
-        detail_section(title="Reporting structure", body_html=reporting_body)
+        detail_section(title="Workspace folder", body_html=workspace_body)
+        + detail_section(title="Reporting structure", body_html=reporting_body)
         + detail_section(title="HR notes (free-form)", body_html=notes_body)
         + detail_section(title="Custom fields", body_html=custom_body)
         + detail_section(title="Documents", body_html=doc_body)
@@ -743,10 +864,12 @@ async function saveAssignment(empId, field, pickerId) {{
         subtitle=" · ".join(subtitle_bits),
         fields=fields,
         related_html=related_html,
+        field_options={"status": list(ALLOWED_STATUS)},
         item_id=int(item_id),
         api_path=f"/api/m/{NAME}",
         delete_redirect=f"/m/{NAME}",
-        exclude_edit_fields={"reports_to", "department", "role"},
+        exclude_edit_fields={"reports_to", "department", "role", "created", "updated"},
+        edit_field_names={"date_of_birth": "dob"},
     )
     handler._html(200, html)
 
@@ -759,6 +882,7 @@ def create_api(handler) -> None:
     except (ValueError, sqlite3.IntegrityError) as exc:
         handler._json({"error": str(exc)}, code=400)
         return
+    _sync_employee_workspace(handler, new_id)
     handler._json({"id": new_id}, code=201)
 
 
@@ -770,6 +894,7 @@ def update_api(handler, item_id: int) -> None:
     except (ValueError, sqlite3.IntegrityError) as exc:
         handler._json({"error": str(exc)}, code=400)
         return
+    _sync_employee_workspace(handler, int(item_id))
     handler._json({"ok": True})
 
 
@@ -783,7 +908,6 @@ def delete_api(handler, item_id: int) -> None:
 # Custom notes + custom fields (Phase 1.11)
 # ---------------------------------------------------------------------------
 def _workspace_root_for(handler):
-    from pathlib import Path
     server = getattr(handler, "server", None)
     root = getattr(server, "workspace_root", None) if server else None
     if root:
@@ -795,6 +919,18 @@ def _workspace_root_for(handler):
     except Exception:  # noqa: BLE001
         return None
     return None
+
+
+def _sync_employee_workspace(handler, item_id: int) -> None:
+    from hrkit import employee_fs
+    conn = handler.server.conn  # type: ignore[attr-defined]
+    workspace_root = _workspace_root_for(handler)
+    if workspace_root is None:
+        return
+    try:
+        employee_fs.write_employee_md_for_id(conn, workspace_root, int(item_id))
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def _employee_code_for(conn, item_id: int) -> str:

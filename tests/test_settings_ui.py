@@ -137,3 +137,11 @@ def test_save_initial_provider_no_prior_config(conn):
     })
     code, payload = h.json_responses[0]
     assert code == 200 and payload["ok"] is True
+
+
+def test_settings_model_picker_filters_voice_models(conn):
+    _ensure_settings_table(conn)
+    html = settings_ui.render_settings_page(conn)
+    assert "chat_compatible" in html
+    assert "voice/audio model(s)" in html
+    assert "not valid for the HR assistant" in html

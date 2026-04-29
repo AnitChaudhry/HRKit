@@ -608,6 +608,9 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/integrations/test":
                 integrations_ui.handle_tool_test(self, self._read_json())
                 return
+            if path == "/api/integrations/mcp/sync":
+                integrations_ui.handle_mcp_sync(self, self._read_json())
+                return
             if path == "/api/recipes":
                 recipes_ui.handle_save(self, self._read_json())
                 return

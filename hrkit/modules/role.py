@@ -138,7 +138,11 @@ def _render_list_html(rows: list[dict[str, Any]],
         cells = "".join(f"<td>{_esc(row.get(c))}</td>" for c in LIST_COLUMNS)
         body_rows.append(
             f'<tr data-id="{row["id"]}">{cells}'
-            f'<td><button onclick="deleteRow({row["id"]})">Delete</button></td></tr>'
+            f'<td style="display:flex;gap:8px;align-items:center">'
+            f'<a href="/m/role/{row["id"]}" '
+            f'style="padding:6px 12px;border:1px solid var(--border);border-radius:6px;'
+            f'color:var(--text);text-decoration:none;font-size:12px">Open</a>'
+            f'<button onclick="deleteRow({row["id"]})">Delete</button></td></tr>'
         )
     dept_opts = "".join(
         f'<option value="{d["id"]}">{_esc(d["label"])}</option>' for d in departments
@@ -267,7 +271,46 @@ def detail_view(handler, item_id: int) -> None:
     else:
         emp_body = '<div class="empty">No employees with this role.</div>'
 
-    related_html = detail_section(title="Employees", body_html=emp_body)
+    current_dept = row.get("department_id")
+    dept_options = ['<option value="">-- no department --</option>']
+    for dept in _list_departments(conn):
+        sel = " selected" if current_dept and int(current_dept) == int(dept["id"]) else ""
+        dept_options.append(
+            f'<option value="{int(dept["id"])}"{sel}>{_esc(dept["label"])}</option>'
+        )
+    dept_body = f"""
+<style>
+  .role-dept-row{{display:flex;gap:8px;align-items:center;margin-bottom:10px}}
+  .role-dept-row label{{flex:0 0 96px;color:var(--dim);font-size:12px;margin:0}}
+  .role-dept-row select{{flex:1;padding:7px 10px;background:var(--bg);
+    color:var(--text);border:1px solid var(--border);border-radius:6px;font-size:13px}}
+  .role-dept-row button{{padding:7px 14px;border-radius:6px;background:var(--accent);
+    color:#fff;border:none;cursor:pointer;font-size:12px}}
+</style>
+<div class="role-dept-row">
+  <label>Department</label>
+  <select id="role-dept-picker">{''.join(dept_options)}</select>
+  <button onclick="saveRoleDepartment({int(item_id)})">Update</button>
+</div>
+<script>
+async function saveRoleDepartment(id) {{
+  const sel = document.getElementById('role-dept-picker');
+  const payload = {{department_id: sel.value === '' ? null : parseInt(sel.value, 10)}};
+  const r = await fetch('/api/m/role/' + id, {{
+    method: 'POST',
+    headers: {{'Content-Type': 'application/json'}},
+    body: JSON.stringify(payload),
+  }});
+  if (r.ok) location.reload();
+  else hrkit.toast('Update failed: ' + await r.text(), 'error');
+}}
+</script>
+"""
+
+    related_html = (
+        detail_section(title="Department assignment", body_html=dept_body)
+        + detail_section(title="Employees", body_html=emp_body)
+    )
 
     subtitle_bits = [b for b in (dept_name, row.get("level")) if b]
     html = render_detail_page(
@@ -280,6 +323,7 @@ def detail_view(handler, item_id: int) -> None:
         api_path=f"/api/m/{NAME}",
         delete_redirect=f"/m/{NAME}",
         field_options={"level": list(HR_LEVELS)},
+        exclude_edit_fields={"department", "created", "updated"},
     )
     handler._html(200, html)
 

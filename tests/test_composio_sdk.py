@@ -98,6 +98,11 @@ class _FakeToolkits:
     def list(self, *, limit=None, **_) -> _FakeListResp:
         return _FakeListResp(self._items)
 
+    def get(self, slug=None, *, query=None):
+        if slug:
+            return next((item for item in self._items if item.slug == slug), None)
+        return _FakeListResp(self._items)
+
     def authorize(self, *, user_id: str, toolkit: str) -> _FakeReq:
         self.authorized.append((user_id, toolkit))
         return _FakeReq(id_=f"conn-{toolkit}", redirect_url=f"https://composio/auth/{toolkit}")
@@ -112,6 +117,9 @@ class _FakeTools:
         if toolkits:
             return [t for t in self._tools if t.toolkit.slug in toolkits]
         return list(self._tools)
+
+    def get_raw_composio_tool_by_slug(self, slug: str):
+        return next(t for t in self._tools if t.slug == slug)
 
     def execute(self, *, slug: str, arguments: dict, **_) -> _FakeExec:
         self.executed.append((slug, arguments))
@@ -177,6 +185,19 @@ def test_list_apps_via_sdk(memconn, monkeypatch):
     assert all(a["name"] for a in apps)
 
 
+def test_list_apps_supports_current_sdk_toolkits_get(memconn, monkeypatch):
+    class _ToolkitsGetOnly:
+        def get(self, slug=None, *, query=None):
+            return _FakeListResp([_FakeToolkit("gmail", "Gmail")])
+
+    class _SDK:
+        toolkits = _ToolkitsGetOnly()
+
+    monkeypatch.setattr(composio_sdk, "_client", lambda conn: _SDK())
+    apps = composio_sdk.list_apps(memconn)
+    assert apps[0]["slug"] == "gmail"
+
+
 def test_list_actions_filters_by_toolkit(memconn, monkeypatch):
     _patch_sdk(monkeypatch)
     actions = composio_sdk.list_actions(memconn, app_slug="gmail")
@@ -208,6 +229,13 @@ def test_execute_action_returns_normalized_envelope(memconn, monkeypatch):
     assert out["error"] == ""
 
 
+def test_get_action_schema_via_sdk(memconn, monkeypatch):
+    _patch_sdk(monkeypatch)
+    schema = composio_sdk.get_action_schema(memconn, "gmail_send_email")
+    assert schema["slug"] == "GMAIL_SEND_EMAIL"
+    assert schema["toolkit_slug"] == "gmail"
+
+
 # ---------------------------------------------------------------------------
 # Fallback path — when SDK unavailable, urllib client is used
 # ---------------------------------------------------------------------------
@@ -237,6 +265,68 @@ def test_execute_action_falls_back_to_urllib(memconn, monkeypatch):
     assert out["successful"] is True
     assert out["data"] == {"id": "fallback-1"}
     assert captured and captured[0][0] == "GMAIL_SEND_EMAIL"
+
+
+def test_get_action_schema_falls_back_to_v3_tool_endpoint(memconn, monkeypatch):
+    _patch_sdk(monkeypatch, available=False)
+    monkeypatch.setattr(composio_client, "get_tool", lambda conn, slug: {
+        "slug": slug,
+        "name": "Send",
+        "description": "Send an email",
+        "toolkit": {"slug": "gmail"},
+        "input_parameters": {"recipient_email": {"type": "string"}},
+    })
+    schema = composio_sdk.get_action_schema(memconn, "GMAIL_SEND_EMAIL")
+    assert schema["slug"] == "GMAIL_SEND_EMAIL"
+    assert schema["input_parameters"]["recipient_email"]["type"] == "string"
+
+
+def test_sync_mcp_server_creates_and_persists_state(memconn, monkeypatch):
+    _patch_sdk(monkeypatch, available=False)
+    captured = {}
+
+    def fake_create(conn, *, name, toolkits, allowed_tools):
+        captured.update({"name": name, "toolkits": toolkits, "allowed_tools": allowed_tools})
+        return {
+            "id": "mcp-1",
+            "mcp_url": "https://backend.composio.dev/v3/mcp/mcp-1?user_id=u",
+        }
+
+    monkeypatch.setattr(composio_client, "create_mcp_server", fake_create)
+    out = composio_sdk.sync_mcp_server(
+        memconn,
+        toolkits=["gmail"],
+        allowed_tools=["GMAIL_SEND_EMAIL"],
+    )
+    assert out["ok"] is True
+    assert captured["toolkits"] == ["gmail"]
+    assert captured["allowed_tools"] == ["GMAIL_SEND_EMAIL"]
+    state = composio_sdk.mcp_state(memconn)
+    assert state["server_id"] == "mcp-1"
+    assert state["allowed_tools"] == ["GMAIL_SEND_EMAIL"]
+
+
+def test_sync_mcp_server_updates_existing_server(memconn, monkeypatch):
+    _patch_sdk(monkeypatch, available=False)
+    memconn.execute(
+        "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+        (composio_sdk.MCP_SERVER_ID_KEY, "mcp-old"),
+    )
+    captured = {}
+
+    def fake_update(conn, server_id, **kwargs):
+        captured.update({"server_id": server_id, **kwargs})
+        return {"id": server_id, "mcp_url": "https://mcp/current"}
+
+    monkeypatch.setattr(composio_client, "update_mcp_server", fake_update)
+    out = composio_sdk.sync_mcp_server(
+        memconn,
+        toolkits=["slack"],
+        allowed_tools=["SLACK_SEND_MESSAGE"],
+    )
+    assert out["server_id"] == "mcp-old"
+    assert captured["server_id"] == "mcp-old"
+    assert captured["allowed_tools"] == ["SLACK_SEND_MESSAGE"]
 
 
 def test_init_connection_falls_back_to_urllib(memconn, monkeypatch):

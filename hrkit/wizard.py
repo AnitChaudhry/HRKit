@@ -146,6 +146,12 @@ def render_wizard_page(conn: sqlite3.Connection) -> str:
   .dot {{ flex: 1; height: 4px; background: var(--border); border-radius: 2px; }}
   .dot.active {{ background: var(--accent); }}
   .dot.done {{ background: var(--green); }}
+  .step-labels {{ display: grid; grid-template-columns: repeat(5, minmax(0, 1fr));
+                  gap: 6px; margin: -12px 0 22px; }}
+  .step-label {{ color: var(--mute); font-size: 10.5px; text-align: center;
+                 white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }}
+  .step-label.active {{ color: var(--accent); font-weight: 700; }}
+  .step-label.done {{ color: var(--green); font-weight: 600; }}
   label {{ display: block; font-size: 12px; color: var(--dim); margin-top: 12px;
            margin-bottom: 4px; font-weight: 500; }}
   input, select, textarea {{ width: 100%; padding: 9px 11px; background: var(--panel-alt);
@@ -155,7 +161,9 @@ def render_wizard_page(conn: sqlite3.Connection) -> str:
                                                 box-shadow: 0 0 0 3px var(--accent-soft); }}
   .row {{ display: flex; gap: 12px; }}
   .row > * {{ flex: 1; }}
-  .actions {{ display: flex; justify-content: space-between; gap: 8px; margin-top: 22px; }}
+  .actions {{ display: flex; justify-content: space-between; gap: 8px; margin-top: 22px;
+              align-items: center; flex-wrap: wrap; }}
+  .actions-group {{ display: flex; gap: 8px; align-items: center; margin-left: auto; flex-wrap: wrap; }}
   button {{ padding: 9px 16px; border-radius: 8px; border: 1px solid var(--border);
             background: var(--panel); color: var(--text); font-size: 13px; cursor: pointer;
             font-family: inherit; font-weight: 500; }}
@@ -212,13 +220,20 @@ def render_wizard_page(conn: sqlite3.Connection) -> str:
 <body>
 <div class="card">
   <h1>Welcome to {title}</h1>
-  <div class="sub">Five quick steps to set up your workspace.</div>
+  <div class="sub">Five quick steps to set up this local HR workspace. You can come back or change settings later.</div>
   <div class="steps">
     <div class="dot active" id="dot-1"></div>
     <div class="dot" id="dot-2"></div>
     <div class="dot" id="dot-3"></div>
     <div class="dot" id="dot-4"></div>
     <div class="dot" id="dot-5"></div>
+  </div>
+  <div class="step-labels" aria-hidden="true">
+    <span class="step-label active" id="step-label-1">Brand</span>
+    <span class="step-label" id="step-label-2">AI key</span>
+    <span class="step-label" id="step-label-3">Modules</span>
+    <span class="step-label" id="step-label-4">Department</span>
+    <span class="step-label" id="step-label-5">First employee</span>
   </div>
 
   <form class="step active" data-step="1">
@@ -235,7 +250,7 @@ def render_wizard_page(conn: sqlite3.Connection) -> str:
     <label>AI provider</label>
     <select name="ai_provider" id="wiz-ai-provider">
       <option value="openrouter">OpenRouter (recommended — has free models)</option>
-      <option value="upfyn">Upfyn</option>
+      <option value="upfyn">UpfynAI</option>
     </select>
     <label>API key</label>
     <input name="ai_api_key" id="wiz-ai-key" type="password" placeholder="sk-or-...">
@@ -254,8 +269,11 @@ def render_wizard_page(conn: sqlite3.Connection) -> str:
     </div>
 
     <div class="actions" style="margin-top:14px">
-      <button type="button" class="skip" data-skip="2">Skip (configure later)</button>
-      <button type="submit" id="wiz-ai-next" class="primary" disabled>Next</button>
+      <button type="button" class="back" data-back="1">Back</button>
+      <div class="actions-group">
+        <button type="button" class="skip" data-skip="2">Skip (configure later)</button>
+        <button type="submit" id="wiz-ai-next" class="primary" disabled>Next</button>
+      </div>
     </div>
     <div class="err"></div>
   </form>
@@ -276,8 +294,11 @@ def render_wizard_page(conn: sqlite3.Connection) -> str:
       {modules_html}
     </div>
     <div class="actions">
-      <button type="button" class="skip" data-skip="3">Skip (enable all)</button>
-      <button type="submit" class="primary">Next</button>
+      <button type="button" class="back" data-back="2">Back</button>
+      <div class="actions-group">
+        <button type="button" class="skip" data-skip="3">Skip (enable all)</button>
+        <button type="submit" class="primary">Next</button>
+      </div>
     </div>
     <div class="err"></div>
   </form>
@@ -288,8 +309,10 @@ def render_wizard_page(conn: sqlite3.Connection) -> str:
     <label>Code (optional)</label>
     <input name="code" placeholder="ENG">
     <div class="actions">
-      <span></span>
-      <button type="submit" class="primary">Next</button>
+      <button type="button" class="back" data-back="3">Back</button>
+      <div class="actions-group">
+        <button type="submit" class="primary">Next</button>
+      </div>
     </div>
     <div class="err"></div>
   </form>
@@ -317,8 +340,10 @@ def render_wizard_page(conn: sqlite3.Connection) -> str:
       is checked &mdash; click Finish to skip them.
     </div>
     <div class="actions">
-      <span></span>
-      <button type="submit" class="primary">Finish</button>
+      <button type="button" class="back" data-back="4">Back</button>
+      <div class="actions-group">
+        <button type="submit" class="primary">Finish</button>
+      </div>
     </div>
     <div class="err"></div>
   </form>
@@ -339,6 +364,12 @@ function showStep(n) {{
     d.classList.remove('active', 'done');
     if (i < n) d.classList.add('done');
     else if (i === n) d.classList.add('active');
+    const label = document.getElementById('step-label-' + i);
+    if (label) {{
+      label.classList.remove('active', 'done');
+      if (i < n) label.classList.add('done');
+      else if (i === n) label.classList.add('active');
+    }}
   }}
   current = n;
 }}
@@ -355,7 +386,7 @@ const aiNextBtn = document.getElementById('wiz-ai-next');
 
 const PROVIDER_HINTS = {{
   openrouter: 'Get an OpenRouter key at <a href="https://openrouter.ai/keys" target="_blank" rel="noreferrer">openrouter.ai/keys</a> — free models work without billing.',
-  upfyn: 'Get an Upfyn API key at <a href="https://ai.upfyn.com/" target="_blank" rel="noreferrer">ai.upfyn.com</a>.',
+  upfyn: 'Get an UpfynAI key at <a href="https://ai.upfyn.com/" target="_blank" rel="noreferrer">ai.upfyn.com</a>.',
 }};
 
 function setAiStatus(msg, kind) {{
@@ -367,7 +398,7 @@ if (aiProviderEl) {{
   aiProviderEl.addEventListener('change', () => {{
     const p = aiProviderEl.value;
     if (aiKeyHintEl) aiKeyHintEl.innerHTML = PROVIDER_HINTS[p] || '';
-    aiKeyEl.placeholder = p === 'upfyn' ? 'upfyn-...' : 'sk-or-...';
+    aiKeyEl.placeholder = p === 'upfyn' ? 'Paste your UpfynAI key' : 'sk-or-...';
     // Reset connect state — provider change invalidates the previous test.
     aiModelWrap.style.display = 'none';
     aiModelSel.innerHTML = '';
@@ -402,9 +433,11 @@ if (aiConnectBtn) {{
         return;
       }}
       // Populate model dropdown.
-      const models = body.models || [];
+      const allModels = body.models || [];
+      const models = allModels.filter(m => m.chat_compatible !== false);
+      const hiddenNonChat = allModels.length - models.length;
       if (!models.length) {{
-        setAiStatus('Connected, but provider returned no models. Try again or pick a different provider.', 'err');
+        setAiStatus('Connected, but provider returned no chat models. Voice/audio models cannot power the HR assistant.', 'err');
         return;
       }}
       // Sort: free first, then paid; alpha within each group.
@@ -420,6 +453,7 @@ if (aiConnectBtn) {{
           const opt = document.createElement('option');
           opt.value = m.id;
           opt.textContent = (m.free ? '★ ' : '') + m.id;
+          if (m.description) opt.title = m.description;
           g.appendChild(opt);
         }}
         aiModelSel.appendChild(g);
@@ -431,7 +465,9 @@ if (aiConnectBtn) {{
       if (def) aiModelSel.value = def.id;
       aiModelWrap.style.display = '';
       aiNextBtn.disabled = false;
-      setAiStatus('✓ Connected. ' + models.length + ' models available — pick one and click Next.', 'ok');
+      setAiStatus('✓ Connected. ' + models.length + ' chat models available'
+        + (hiddenNonChat ? ' (' + hiddenNonChat + ' voice/audio model hidden).' : '.')
+        + ' Pick one and click Next.', 'ok');
     }} catch (err) {{
       setAiStatus('Network error: ' + err, 'err');
     }} finally {{
@@ -455,6 +491,13 @@ document.querySelectorAll('.wm-quick button').forEach(btn => {{
       // 'all' leaves everything on.
       box.checked = on;
     }});
+  }});
+}});
+
+document.querySelectorAll('[data-back]').forEach(btn => {{
+  btn.addEventListener('click', () => {{
+    const prev = parseInt(btn.dataset.back || '0', 10);
+    if (prev >= 1) showStep(prev);
   }});
 }});
 

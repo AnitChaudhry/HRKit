@@ -100,13 +100,13 @@ def _resolve_helper(mod, op: str) -> Callable:
                    "get_task", "get_record", "get_candidate"),
         "create": ("create_request", "create_run", "create_review",
                    "create_attendance", "create_task", "create_record",
-                   "create_candidate", "create_leave_request"),
+                   "create_candidate", "create_leave_request", "create_entry"),
         "update": ("update_request", "update_run", "update_review",
                    "update_attendance", "update_task", "update_record",
-                   "update_candidate"),
+                   "update_candidate", "update_entry"),
         "delete": ("delete_request", "delete_run", "delete_review",
                    "delete_attendance", "delete_task", "delete_record",
-                   "delete_candidate"),
+                   "delete_candidate", "delete_entry"),
     }
     for name in canonical.get(op, ()) + synonyms.get(op, ()):
         fn = getattr(mod, name, None)
@@ -307,6 +307,46 @@ def _build_query_tool(conn) -> Callable[..., str]:
     if query_records.__doc__:
         query_records.__doc__ = query_records.__doc__.replace("{modules}", allowed_str)
     return query_records
+
+
+def _model_override_error(conn, model_id: str | None) -> str | None:
+    """Return a user-facing error when a selected model cannot handle chat."""
+    model_id = (model_id or "").strip()
+    if not model_id:
+        return None
+
+    def message(capabilities: list[str] | None = None) -> str:
+        caps = ", ".join(capabilities or []) or "voice/audio"
+        return (
+            f"{model_id} is not a chat model ({caps}). "
+            "Pick a text/chat UpfynAI model such as mini, auto, thinker, "
+            "codium, or g1 for the HR assistant."
+        )
+
+    try:
+        catalog = ai.list_models(conn)
+    except Exception as exc:  # noqa: BLE001
+        log.debug("model compatibility lookup failed: %s", exc)
+        catalog = {}
+
+    models = catalog.get("models") if isinstance(catalog, dict) else None
+    if isinstance(models, list):
+        for model in models:
+            if not isinstance(model, dict):
+                continue
+            if str(model.get("id") or "").strip() != model_id:
+                continue
+            if model.get("chat_compatible") is False:
+                raw_caps = model.get("capabilities") or []
+                caps = [str(c) for c in raw_caps if str(c).strip()]
+                return message(caps)
+            return None
+
+    # Fallback for older cached catalogs or hand-written API calls.
+    lower = model_id.lower()
+    if any(token in lower for token in ("chatterbox", "audio", "voice", "tts")):
+        return message()
+    return None
 
 
 def _build_workspace_fs_tools(workspace_root: Path | None,
@@ -510,12 +550,15 @@ def _build_workspace_fs_tools(workspace_root: Path | None,
 
 
 def _build_composio_action_tools(conn) -> list[Callable[..., str]]:
-    """Wrap configured Composio handlers as direct agent-callable tools.
+    """Wrap configured Composio/MCP handlers as direct agent-callable tools.
 
-    Returns an empty list when no Composio key is on file. The four
-    handlers we already register for event-driven hooks are exposed
-    here for the agent to invoke directly:
+    Returns an empty list when no Composio key is on file. We expose
+    docs-style meta tools so the agent can discover, authenticate, inspect,
+    and execute Composio tools at runtime, plus the four HR-friendly
+    shortcuts we already register for event-driven hooks:
 
+      - ``COMPOSIO_SEARCH_TOOLS`` / ``COMPOSIO_GET_TOOL_SCHEMAS``
+      - ``COMPOSIO_MULTI_EXECUTE_TOOL`` / ``COMPOSIO_MANAGE_CONNECTIONS``
       - ``send_email(to, subject, body, html?)``  -> Gmail send
       - ``create_calendar_event(summary, start_date, end_date, description?)``
       - ``upload_to_drive(file_path, filename?, folder_id?)``
@@ -527,16 +570,13 @@ def _build_composio_action_tools(conn) -> list[Callable[..., str]]:
     Composio action slugs once flagged. We mark them with
     ``__name__`` upper-snake so the sandbox filter recognises them.
     """
-    try:
-        from . import composio_client
-    except Exception:  # noqa: BLE001
-        return []
-    if not composio_client.is_configured(conn):
+    if not composio_sdk.is_configured(conn):
         return []
     try:
         from .integrations import composio_actions
     except Exception:  # noqa: BLE001
         return []
+    disabled_tools = branding.composio_disabled_tools(conn)
 
     def _composio_audit(action: str, args: dict[str, Any], result: dict[str, Any]) -> None:
         _record_ai_audit(
@@ -544,6 +584,87 @@ def _build_composio_action_tools(conn) -> list[Callable[..., str]]:
             entity_id=None,
             changes={"args": args, "ok": bool(result.get("ok"))},
         )
+
+    def _json_args(value: Any) -> dict[str, Any]:
+        if isinstance(value, dict):
+            return value
+        if isinstance(value, str) and value.strip():
+            try:
+                parsed = json.loads(value)
+            except json.JSONDecodeError:
+                return {"text": value}
+            return parsed if isinstance(parsed, dict) else {"value": parsed}
+        return {}
+
+    def search_composio_tools(query: str = "", toolkit: str = "") -> str:
+        """Discover enabled Composio tools available to HR.
+
+        Args:
+          query: optional text search such as "send email" or "calendar".
+          toolkit: optional toolkit slug such as "gmail", "slack", or "github".
+
+        Returns matching tool slugs, descriptions, and toolkit names as JSON.
+        """
+        try:
+            actions = composio_sdk.list_actions(
+                conn,
+                app_slug=(toolkit or "").strip().lower() or None,
+                search=(query or "").strip() or None,
+                limit=25,
+            )
+        except Exception as exc:  # noqa: BLE001
+            return f"error: {exc}"
+        out = []
+        for action in actions:
+            slug = str(action.get("slug") or "").upper()
+            if not slug or slug in disabled_tools or action.get("deprecated"):
+                continue
+            out.append({
+                "slug": slug,
+                "name": action.get("name") or slug,
+                "toolkit": action.get("toolkit_slug") or "",
+                "description": action.get("description") or "",
+            })
+        return json.dumps(out, default=str, ensure_ascii=False)
+
+    def get_composio_tool_schema(tool_slug: str) -> str:
+        """Return input/output schema for one enabled Composio tool slug."""
+        slug = (tool_slug or "").strip().upper()
+        if not slug:
+            return "error: tool_slug is required"
+        if slug in disabled_tools:
+            return f"error: {slug} is disabled by HR on the Integrations page"
+        schema = composio_sdk.get_action_schema(conn, slug)
+        return json.dumps(schema, default=str, ensure_ascii=False)
+
+    def execute_composio_tool(tool_slug: str, arguments: dict | str | None = None) -> str:
+        """Execute one enabled Composio tool with HR's connected account.
+
+        Args:
+          tool_slug: Composio action slug, for example GMAIL_SEND_EMAIL.
+          arguments: tool input object matching the schema from
+            COMPOSIO_GET_TOOL_SCHEMAS.
+        """
+        slug = (tool_slug or "").strip().upper()
+        if not slug:
+            return "error: tool_slug is required"
+        if slug in disabled_tools:
+            return f"error: {slug} is disabled by HR on the Integrations page"
+        args = _json_args(arguments)
+        result = composio_sdk.execute_action(conn, slug, args)
+        _record_ai_audit(
+            conn, action=f"composio.{slug}", module="composio",
+            entity_id=None, changes={"args": args, "ok": bool(result.get("successful"))},
+        )
+        return json.dumps(result, default=str, ensure_ascii=False)
+
+    def manage_composio_connection(toolkit: str) -> str:
+        """Create a Composio Connect Link for a toolkit the HR user needs."""
+        slug = (toolkit or "").strip().lower()
+        if not slug:
+            return "error: toolkit is required"
+        result = composio_sdk.init_connection(conn, slug)
+        return json.dumps(result, default=str, ensure_ascii=False)
 
     def send_email(to: str, subject: str, body: str, html: str = "") -> str:
         """Send an email via the operator's connected Gmail account.
@@ -609,7 +730,20 @@ def _build_composio_action_tools(conn) -> list[Callable[..., str]]:
     create_calendar_event.__name__ = "GOOGLECALENDAR_CREATE_EVENT"
     upload_to_drive.__name__ = "GOOGLEDRIVE_UPLOAD_FILE"
     send_signature_request.__name__ = "ESIGN_SEND_REQUEST"
-    return [send_email, create_calendar_event, upload_to_drive, send_signature_request]
+    search_composio_tools.__name__ = "COMPOSIO_SEARCH_TOOLS"
+    get_composio_tool_schema.__name__ = "COMPOSIO_GET_TOOL_SCHEMAS"
+    execute_composio_tool.__name__ = "COMPOSIO_MULTI_EXECUTE_TOOL"
+    manage_composio_connection.__name__ = "COMPOSIO_MANAGE_CONNECTIONS"
+    return [
+        search_composio_tools,
+        get_composio_tool_schema,
+        execute_composio_tool,
+        manage_composio_connection,
+        send_email,
+        create_calendar_event,
+        upload_to_drive,
+        send_signature_request,
+    ]
 
 
 def _build_imported_table_tools(conn) -> list[Callable[..., str]]:
@@ -876,6 +1010,11 @@ async def handle_chat_message(handler, body: dict[str, Any]) -> None:
                 log.warning("recipes_ui.build_recipe_tools failed: %s", exc)
         tools = sandbox.filter_tools(tools, conn)
         model_override = (body.get("model") or "").strip() or None
+        model_to_check = model_override or branding.ai_model(conn)
+        model_error = _model_override_error(conn, model_to_check)
+        if model_error:
+            handler._json({"ok": False, "error": model_error}, code=400)
+            return
 
         try:
             # Belt-and-braces: even after filter_tools, wrap the agent run
@@ -1248,12 +1387,29 @@ async function loadModels() {
     const r = await fetch('/api/models');
     const data = await r.json();
     if (!data.ok || !data.models || !data.models.length) return;
+    const chatModels = data.models.filter(m => m.chat_compatible !== false);
+    const hiddenNonChat = data.models.length - chatModels.length;
     modelSel.innerHTML = '<option value="">Default model</option>';
-    for (const m of data.models) {
+    if (!chatModels.length) {
+      const opt = document.createElement('option');
+      opt.disabled = true;
+      opt.textContent = 'No chat models returned';
+      modelSel.appendChild(opt);
+      modelSel.title = 'Voice/audio models cannot power the HR assistant.';
+      return;
+    }
+    for (const m of chatModels) {
       const opt = document.createElement('option');
       opt.value = m.id;
-      opt.textContent = (m.free ? '★ ' : '') + m.id + (m.free ? '  (free)' : '');
+      opt.textContent = (m.free ? 'Free ' : '') + m.id + (m.free ? ' (free)' : '');
       modelSel.appendChild(opt);
+    }
+    if (hiddenNonChat) {
+      const opt = document.createElement('option');
+      opt.disabled = true;
+      opt.textContent = hiddenNonChat + ' voice/audio model(s) hidden';
+      modelSel.appendChild(opt);
+      modelSel.title = 'Only chat-capable models are shown. Voice/audio models such as Chatterbox are hidden.';
     }
   } catch (err) {
     /* silent — picker stays at "Default model" */

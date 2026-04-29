@@ -54,6 +54,16 @@ def _add_employee(conn: sqlite3.Connection, *, code: str, name: str,
     return int(cur.lastrowid)
 
 
+class _FakeHandler:
+    def __init__(self, conn: sqlite3.Connection, path: str) -> None:
+        self.conn = conn
+        self.path = path
+        self.html_responses: list[tuple[int, str]] = []
+
+    def _html(self, code: int, body: str) -> None:
+        self.html_responses.append((code, body))
+
+
 def test_performance_module_exposes_module_dict():
     perf = importlib.import_module("hrkit.modules.performance")
     assert perf.MODULE["name"] == "performance"
@@ -158,3 +168,112 @@ def test_update_review_changes_score_and_comments(conn):
 
     perf.delete_review(conn, review_id)
     assert perf.get_review(conn, review_id) is None
+
+
+def test_dashboard_rows_filter_and_csv(conn):
+    perf = importlib.import_module("hrkit.modules.performance")
+    employee_id = _add_employee(conn, code="E400", name="Helen",
+                                email="helen@example.com")
+    reviewer_id = _add_employee(conn, code="E401", name="Ishan",
+                                email="ishan@example.com")
+
+    april_review = perf.create_review(
+        conn,
+        employee_id=employee_id,
+        cycle="2026-04",
+        reviewer_id=reviewer_id,
+        comments="Strong delivery",
+        score=8.5,
+    )
+    perf.transition(conn, april_review, "submitted")
+    conn.execute(
+        "UPDATE performance_review SET submitted_at = ?, created = ? WHERE id = ?",
+        ("2026-04-30T17:00:00+05:30", "2026-04-29T09:00:00+05:30", april_review),
+    )
+
+    may_review = perf.create_review(
+        conn,
+        employee_id=employee_id,
+        cycle="2026-05",
+        reviewer_id=reviewer_id,
+        comments="Needs more coaching",
+        score=6.0,
+    )
+    conn.execute(
+        "UPDATE performance_review SET created = ? WHERE id = ?",
+        ("2026-05-10T09:00:00+05:30", may_review),
+    )
+    conn.commit()
+
+    rows = perf.list_dashboard_rows(
+        conn,
+        date_from="2026-04-01",
+        date_to="2026-04-30",
+        status="submitted",
+    )
+    assert [row["id"] for row in rows] == [april_review]
+    assert rows[0]["review_date"] == "2026-04-30"
+
+    summary = perf.summarize_dashboard(rows)
+    assert summary["total_reviews"] == 1
+    assert summary["employees_covered"] == 1
+    assert summary["avg_score"] == pytest.approx(8.5)
+
+    csv_text = perf.build_dashboard_csv(rows)
+    assert "employee_code,employee_name,department" in csv_text
+    assert "E400,Helen" in csv_text
+    assert "2026-04-30" in csv_text
+
+
+def test_dashboard_view_renders_export_link(conn):
+    perf = importlib.import_module("hrkit.modules.performance")
+    employee_id = _add_employee(conn, code="E500", name="Jaya",
+                                email="jaya@example.com")
+    review_id = perf.create_review(conn, employee_id=employee_id, cycle="2026-04", score=9)
+    perf.transition(conn, review_id, "submitted")
+    conn.execute(
+        "UPDATE performance_review SET submitted_at = ?, created = ? WHERE id = ?",
+        ("2026-04-25T17:00:00+05:30", "2026-04-24T09:00:00+05:30", review_id),
+    )
+    conn.commit()
+
+    h = _FakeHandler(
+        conn,
+        "/m/performance/dashboard?date_from=2026-04-01&date_to=2026-04-30&status=submitted",
+    )
+    perf.dashboard_view(h)
+    code, body = h.html_responses[0]
+    assert code == 200
+    assert "Performance dashboard" in body
+    assert "/api/m/performance/dashboard/export.csv?" in body
+    assert "Build dashboard" in body
+
+
+def test_detail_view_only_edits_supported_fields_and_rubric(conn):
+    perf = importlib.import_module("hrkit.modules.performance")
+    employee_id = _add_employee(conn, code="E600", name="Kavya",
+                                email="kavya@example.com")
+    reviewer_id = _add_employee(conn, code="E601", name="Liam",
+                                email="liam@example.com")
+    review_id = perf.create_review(
+        conn,
+        employee_id=employee_id,
+        cycle="2026-04",
+        reviewer_id=reviewer_id,
+        rubric_json=json.dumps({"delivery": 4}),
+        comments="Good month",
+        score=8,
+    )
+
+    h = _FakeHandler(conn, f"/m/performance/{review_id}")
+    perf.detail_view(h, review_id)
+    code, body = h.html_responses[0]
+    assert code == 200
+    assert "Save rubric" in body
+    assert 'id="rubric-json"' in body
+    assert 'name="cycle"' in body
+    assert 'name="score"' in body
+    assert 'name="comments"' in body
+    assert 'name="employee"' not in body
+    assert 'name="reviewer"' not in body
+    assert 'name="status"' not in body

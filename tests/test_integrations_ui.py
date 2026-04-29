@@ -85,6 +85,8 @@ def test_state_separates_connected_from_available(memconn, monkeypatch):
     assert all(a["enabled"] for a in gmail["actions"])
     # Gmail no longer appears in available cards.
     assert not any(a["slug"] == "gmail" for a in state["available"])
+    assert "mcp" in state
+    assert state["mcp"]["configured"] is False
 
 
 def test_state_reflects_disabled_tools(memconn, monkeypatch):
@@ -213,6 +215,39 @@ def test_handle_tool_test_requires_slug(memconn):
     assert h.responses[0][0] == 400
 
 
+def test_handle_mcp_sync_uses_connected_enabled_tools(memconn, monkeypatch):
+    _set_key(memconn)
+    branding.set_composio_disabled_tools(memconn, ["GMAIL_FETCH_EMAILS"])
+    monkeypatch.setattr(composio_sdk, "list_connections", lambda conn: [
+        {"id": "c1", "toolkit_slug": "gmail", "status": "ACTIVE", "created_at": "now"},
+    ])
+    monkeypatch.setattr(composio_sdk, "list_actions", lambda conn, app_slug=None, **kw: [
+        {"slug": "GMAIL_SEND_EMAIL", "name": "Send", "description": "",
+         "toolkit_slug": "gmail", "deprecated": False},
+        {"slug": "GMAIL_FETCH_EMAILS", "name": "Fetch", "description": "",
+         "toolkit_slug": "gmail", "deprecated": False},
+    ])
+    captured = {}
+
+    def fake_sync(conn, *, toolkits, allowed_tools):
+        captured.update({"toolkits": toolkits, "allowed_tools": allowed_tools})
+        return {
+            "ok": True,
+            "server_id": "mcp-1",
+            "server_url": "https://mcp/1",
+            "toolkits": toolkits,
+            "allowed_tools": allowed_tools,
+        }
+
+    monkeypatch.setattr(composio_sdk, "sync_mcp_server", fake_sync)
+    h = _FakeHandler(memconn)
+    integrations_ui.handle_mcp_sync(h, {})
+    code, payload = h.responses[0]
+    assert code == 200 and payload["ok"] is True
+    assert captured["toolkits"] == ["gmail"]
+    assert captured["allowed_tools"] == ["GMAIL_SEND_EMAIL"]
+
+
 # ---------------------------------------------------------------------------
 # Page render smoke-test
 # ---------------------------------------------------------------------------
@@ -221,5 +256,7 @@ def test_render_integrations_page_returns_html(memconn):
     assert "<html" in html.lower() or "<!doctype" in html.lower()
     assert "Integrations" in html
     assert "/api/integrations/state" in html
+    assert "/api/integrations/mcp/sync" in html
+    assert "Composio MCP tool access" in html
     # Curated catalog is referenced from JS — page itself just bootstraps.
     assert "loadState" in html

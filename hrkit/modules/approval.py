@@ -238,10 +238,29 @@ def detail_view(handler, item_id):
         ("Comments", row.get("comments")),
         ("Created", row.get("created")),
     ]
+    actions = f"""
+<button onclick="respondDetail({int(item_id)},'approved')">Approve</button>
+<button class="danger" onclick="respondDetail({int(item_id)},'rejected')">Reject</button>
+<script>
+async function respondDetail(id, verdict) {{
+  const comments = verdict === 'rejected'
+    ? (await hrkit.promptDialog('Reason for rejection?', ''))
+    : '';
+  if (verdict === 'rejected' && comments === null) return;
+  const r = await fetch('/api/m/approval/' + id + '/respond', {{
+    method: 'POST',
+    headers: {{'Content-Type': 'application/json'}},
+    body: JSON.stringify({{status: verdict, comments: comments || ''}})
+  }});
+  if (r.ok) location.reload();
+  else hrkit.toast('Failed: ' + await r.text(), 'error');
+}}
+</script>
+"""
     handler._html(200, render_detail_page(
         title=f"{row.get('request_type', '?')} #{row.get('request_id', '?')}",
         nav_active=NAME, subtitle=f"level {row.get('level')}",
-        fields=fields, item_id=int(item_id),
+        fields=fields, actions_html=actions, item_id=int(item_id),
     ))
 
 

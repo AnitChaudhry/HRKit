@@ -35,6 +35,86 @@ log = logging.getLogger(__name__)
 # inside pydantic_ai if needed.
 _HEALTH_TIMEOUT_SECONDS = 8.0
 _CHAT_TIMEOUT_SECONDS = 60.0
+_BROWSER_SAFE_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/135.0.0.0 Safari/537.36"
+)
+
+
+def _request_headers(api_key: str | None, *, json_body: bool = False) -> dict[str, str]:
+    """Headers shared by all direct provider calls.
+
+    Upfyn sits behind Cloudflare and rejects the default ``Python-urllib`` /
+    ``OpenAI/Python`` user agents with HTTP 403 (Error 1010). A browser-like
+    ``User-Agent`` keeps the request signature compatible across onboarding,
+    settings, and chat flows.
+    """
+    headers = {
+        "Accept": "application/json",
+        "User-Agent": _BROWSER_SAFE_USER_AGENT,
+    }
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    if json_body:
+        headers["Content-Type"] = "application/json"
+    return headers
+
+
+def _build_openai_client(*, base_url: str, api_key: str):
+    """Create an async OpenAI-compatible client with browser-safe headers."""
+    try:
+        from openai import AsyncOpenAI
+    except ImportError as exc:  # pragma: no cover - exercised via runtime error
+        raise RuntimeError(
+            "pydantic-ai-slim[openai] is not installed. "
+            "Run: pip install 'pydantic-ai-slim[openai]>=1.0'"
+        ) from exc
+
+    return AsyncOpenAI(
+        base_url=base_url,
+        api_key=api_key,
+        default_headers={"User-Agent": _BROWSER_SAFE_USER_AGENT},
+    )
+
+
+def _http_error_detail(exc: urllib.error.HTTPError) -> str:
+    """Extract a short user-facing message from a provider HTTP error."""
+    raw = f"HTTP {exc.code}: {exc.reason}"
+    try:
+        body = exc.read().decode("utf-8", errors="replace")
+    except Exception:  # pragma: no cover - defensive: body streams can fail
+        body = ""
+    if not body:
+        return friendly_error(raw)
+
+    detail = ""
+    try:
+        payload = json.loads(body)
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        payload = None
+
+    if isinstance(payload, dict):
+        err = payload.get("error")
+        if isinstance(err, dict):
+            parts = [str(err.get("code") or "").strip(), str(err.get("message") or "").strip()]
+            detail = " ".join(p for p in parts if p).strip()
+        elif isinstance(err, str):
+            detail = err.strip()
+        if not detail:
+            parts = [str(payload.get("title") or "").strip(), str(payload.get("detail") or "").strip()]
+            detail = " ".join(p for p in parts if p).strip()
+
+    if not detail:
+        detail = body.strip()[:300]
+
+    if not detail:
+        return friendly_error(raw)
+
+    friendly = friendly_error(detail)
+    if friendly != detail:
+        return friendly
+    return f"HTTP {exc.code}: {detail}"
 
 
 def _tool_name(tool: Any) -> str:
@@ -119,7 +199,9 @@ def _build_agent(
             "Run: pip install 'pydantic-ai-slim[openai]>=1.0'"
         ) from exc
 
-    provider = OpenAIProvider(base_url=base_url, api_key=api_key)
+    provider = OpenAIProvider(
+        openai_client=_build_openai_client(base_url=base_url, api_key=api_key)
+    )
     chat_model = OpenAIChatModel(model, provider=provider)
 
     kwargs: dict[str, Any] = {}
@@ -202,18 +284,13 @@ def chat_complete(
         url,
         data=body,
         method="POST",
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-        },
+        headers=_request_headers(api_key, json_body=True),
     )
     try:
         with urllib.request.urlopen(req, timeout=_CHAT_TIMEOUT_SECONDS) as resp:
             data = json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", errors="replace")[:500]
-        raise RuntimeError(f"chat_complete HTTP {exc.code}: {detail}") from exc
+        raise RuntimeError(_http_error_detail(exc)) from exc
     except urllib.error.URLError as exc:
         raise RuntimeError(f"chat_complete network error: {exc.reason}") from exc
 
@@ -229,7 +306,10 @@ def list_models(conn) -> dict:
     Returns a dict::
 
         {"ok": bool, "provider": str, "models": [
-            {"id": str, "name": str, "free": bool, "context": int}
+            {
+                "id": str, "name": str, "free": bool, "context": int,
+                "capabilities": list[str], "chat_compatible": bool,
+            }
         ], "error": str | None}
 
     Free detection is best-effort: OpenRouter exposes ``pricing`` per model and
@@ -247,16 +327,13 @@ def list_models(conn) -> dict:
     req = urllib.request.Request(
         url,
         method="GET",
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Accept": "application/json",
-        },
+        headers=_request_headers(api_key),
     )
     try:
         with urllib.request.urlopen(req, timeout=_HEALTH_TIMEOUT_SECONDS) as resp:
             raw = resp.read()
     except urllib.error.HTTPError as exc:
-        out["error"] = f"HTTP {exc.code}: {exc.reason}"
+        out["error"] = _http_error_detail(exc)
         return out
     except urllib.error.URLError as exc:
         out["error"] = f"network error: {exc.reason}"
@@ -282,13 +359,20 @@ def list_models(conn) -> dict:
         mid = str(item.get("id") or item.get("name") or "").strip()
         if not mid:
             continue
-        # Free detection (OpenRouter shape).
-        free = False
+        # Free detection: OpenRouter exposes pricing; Upfyn exposes either
+        # ``free`` or zero credits.
+        free = bool(item.get("free") is True)
         pricing = item.get("pricing")
         if isinstance(pricing, dict):
             prompt_price = str(pricing.get("prompt", "")).strip()
             if prompt_price in ("0", "0.0", "0.00", "0.000000"):
                 free = True
+        credits = item.get("credits_per_request")
+        try:
+            if credits is not None and float(credits) == 0:
+                free = True
+        except (TypeError, ValueError):
+            pass
         # Heuristic fallback: ":free" suffix is OpenRouter's convention.
         if mid.endswith(":free"):
             free = True
@@ -297,11 +381,36 @@ def list_models(conn) -> dict:
             ctx = int(ctx)
         except (TypeError, ValueError):
             ctx = 0
+        raw_caps = item.get("capabilities")
+        capabilities = [
+            str(c).strip().lower()
+            for c in raw_caps
+            if str(c).strip()
+        ] if isinstance(raw_caps, list) else []
+        non_chat_caps = {
+            "audio-generation",
+            "tts",
+            "voice-generation",
+            "voice-cloning",
+            "image-generation",
+            "video-generation",
+        }
+        chat_compatible = not capabilities or bool(set(capabilities) - non_chat_caps)
+        max_tokens = item.get("max_tokens") or item.get("max_completion_tokens") or 0
+        try:
+            max_tokens = int(max_tokens)
+        except (TypeError, ValueError):
+            max_tokens = 0
         models.append({
             "id": mid,
             "name": str(item.get("name") or mid),
             "free": bool(free),
             "context": ctx,
+            "capabilities": capabilities,
+            "chat_compatible": chat_compatible,
+            "credits_per_request": credits,
+            "max_tokens": max_tokens,
+            "description": str(item.get("description") or ""),
         })
 
     # Free first, then alphabetical — UX hint that free models always work.
@@ -354,10 +463,7 @@ def health_check(conn) -> dict:
     req = urllib.request.Request(
         url,
         method="GET",
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Accept": "application/json",
-        },
+        headers=_request_headers(api_key),
     )
     try:
         with urllib.request.urlopen(req, timeout=_HEALTH_TIMEOUT_SECONDS) as resp:
@@ -367,7 +473,7 @@ def health_check(conn) -> dict:
         result["ok"] = True
         return result
     except urllib.error.HTTPError as exc:
-        result["error"] = f"HTTP {exc.code}: {exc.reason}"
+        result["error"] = _http_error_detail(exc)
         return result
     except urllib.error.URLError as exc:
         result["error"] = f"network error: {exc.reason}"

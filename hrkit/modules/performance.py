@@ -6,12 +6,15 @@ as a POST endpoint and a CLI subcommand.
 """
 from __future__ import annotations
 
+import csv
 import html
+import io
 import json
 import logging
 import sqlite3
 from datetime import datetime
 from typing import Any
+from urllib.parse import parse_qs, urlencode, urlparse
 
 from ..branding import app_name
 
@@ -227,6 +230,150 @@ def delete_review(conn: sqlite3.Connection, review_id: int) -> None:
     conn.commit()
 
 
+def _today_ist_date() -> str:
+    try:
+        from ..config import IST  # type: ignore[attr-defined]
+        return datetime.now(IST).strftime("%Y-%m-%d")
+    except (ImportError, AttributeError):
+        return datetime.utcnow().strftime("%Y-%m-%d")
+
+
+def _default_dashboard_range() -> tuple[str, str]:
+    today = _today_ist_date()
+    return today[:8] + "01", today
+
+
+def _coerce_filter_date(value: Any) -> str:
+    if value in (None, ""):
+        return ""
+    text = str(value).strip()
+    try:
+        return datetime.strptime(text, "%Y-%m-%d").strftime("%Y-%m-%d")
+    except ValueError as exc:
+        raise ValueError("date filters must use YYYY-MM-DD") from exc
+
+
+def list_dashboard_rows(
+    conn: sqlite3.Connection,
+    *,
+    date_from: Any = "",
+    date_to: Any = "",
+    status: Any = "",
+) -> list[dict[str, Any]]:
+    """Return performance rows filtered for the dashboard/export view."""
+    date_from_s = _coerce_filter_date(date_from)
+    date_to_s = _coerce_filter_date(date_to)
+    if date_from_s and date_to_s and date_from_s > date_to_s:
+        raise ValueError("date_from must be on or before date_to")
+
+    status_s = str(status or "").strip().lower()
+    if status_s and status_s not in _VALID_STATUSES:
+        raise ValueError(f"invalid status filter: {status_s!r}")
+
+    review_date_expr = (
+        "COALESCE(NULLIF(substr(pr.submitted_at,1,10),''), substr(pr.created,1,10))"
+    )
+    rows = conn.execute(
+        f"""
+        SELECT pr.id, pr.employee_id, e.employee_code,
+               e.full_name AS employee_name,
+               d.name AS department, ro.title AS role,
+               rv.full_name AS reviewer_name,
+               pr.cycle, pr.status, pr.score, pr.comments,
+               pr.submitted_at, pr.created,
+               {review_date_expr} AS review_date
+        FROM performance_review pr
+        JOIN employee e ON e.id = pr.employee_id
+        LEFT JOIN department d ON d.id = e.department_id
+        LEFT JOIN role ro ON ro.id = e.role_id
+        LEFT JOIN employee rv ON rv.id = pr.reviewer_id
+        WHERE (? = '' OR date({review_date_expr}) >= date(?))
+          AND (? = '' OR date({review_date_expr}) <= date(?))
+          AND (? = '' OR pr.status = ?)
+        ORDER BY review_date DESC, e.full_name COLLATE NOCASE, pr.id DESC
+        """,
+        (date_from_s, date_from_s, date_to_s, date_to_s, status_s, status_s),
+    ).fetchall()
+    return [_row_to_dict(r) or {} for r in rows]
+
+
+def summarize_dashboard(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """Compute headline metrics + department rollups for dashboard cards."""
+    scores: list[float] = []
+    employees: set[int] = set()
+    status_counts = {status: 0 for status in _VALID_STATUSES}
+    departments: dict[str, list[float]] = {}
+    top_rows: list[dict[str, Any]] = []
+
+    for row in rows:
+        employees.add(int(row.get("employee_id") or 0))
+        status = str(row.get("status") or "draft")
+        if status in status_counts:
+            status_counts[status] += 1
+        try:
+            score = float(row.get("score") or 0)
+        except (TypeError, ValueError):
+            score = 0.0
+        scores.append(score)
+        dept = str(row.get("department") or "Unassigned")
+        departments.setdefault(dept, []).append(score)
+        top_rows.append({**row, "_score_float": score})
+
+    department_rows = [
+        {
+            "department": dept,
+            "reviews": len(vals),
+            "avg_score": (sum(vals) / len(vals)) if vals else 0.0,
+            "best_score": max(vals) if vals else 0.0,
+        }
+        for dept, vals in departments.items()
+    ]
+    department_rows.sort(key=lambda item: (-item["avg_score"], item["department"]))
+
+    top_rows.sort(
+        key=lambda item: (
+            -item["_score_float"],
+            str(item.get("review_date") or ""),
+            str(item.get("employee_name") or ""),
+        )
+    )
+
+    return {
+        "total_reviews": len(rows),
+        "employees_covered": len([emp for emp in employees if emp]),
+        "avg_score": (sum(scores) / len(scores)) if scores else 0.0,
+        "draft_count": status_counts["draft"],
+        "submitted_count": status_counts["submitted"],
+        "acknowledged_count": status_counts["acknowledged"],
+        "department_rows": department_rows,
+        "top_rows": top_rows[:5],
+    }
+
+
+def build_dashboard_csv(rows: list[dict[str, Any]]) -> str:
+    """Serialize dashboard rows into a month-end friendly CSV export."""
+    buf = io.StringIO()
+    fieldnames = [
+        "review_date",
+        "employee_code",
+        "employee_name",
+        "department",
+        "role",
+        "reviewer_name",
+        "cycle",
+        "status",
+        "score",
+        "comments",
+        "submitted_at",
+        "created",
+    ]
+    writer = csv.DictWriter(buf, fieldnames=fieldnames)
+    writer.writeheader()
+    for row in rows:
+        writer.writerow({name: row.get(name, "") for name in fieldnames})
+    return buf.getvalue()
+
+
 # ---------------------------------------------------------------------------
 # HTML rendering
 # ---------------------------------------------------------------------------
@@ -264,6 +411,9 @@ def _render_list(reviews: list[dict[str, Any]], emp_options: str) -> str:
         "<div class=\"module-toolbar\">"
         f"<h1>{html.escape(LABEL)}</h1>"
         "<button onclick=\"openCreateForm()\">+ Add review</button>"
+        "<a href=\"/m/performance/dashboard\" "
+        "style=\"padding:7px 14px;border:1px solid var(--border);border-radius:6px;"
+        "color:var(--dim);text-decoration:none;font-size:13px\">Dashboard</a>"
         "<input type=\"search\" placeholder=\"Search...\" "
         "oninput=\"filter(this.value)\">"
         "</div>"
@@ -303,6 +453,141 @@ def _render_list(reviews: list[dict[str, Any]], emp_options: str) -> str:
         "headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});"
         "if(r.ok){location.reload();}else{var t=await r.text();hrkit.toast('Save failed: '+t, 'error');}}"
         "</script>"
+    )
+
+
+def _render_dashboard_page(
+    *,
+    rows: list[dict[str, Any]],
+    date_from: str,
+    date_to: str,
+    status: str,
+) -> str:
+    summary = summarize_dashboard(rows)
+    status_opts = ['<option value="">All statuses</option>']
+    for value in _VALID_STATUSES:
+        selected = " selected" if status == value else ""
+        status_opts.append(
+            f'<option value="{html.escape(value)}"{selected}>{html.escape(value.title())}</option>'
+        )
+    query = urlencode({
+        "date_from": date_from,
+        "date_to": date_to,
+        "status": status,
+    })
+    cards = [
+        ("Reviews", str(summary["total_reviews"])),
+        ("Employees", str(summary["employees_covered"])),
+        ("Average score", f'{summary["avg_score"]:.2f}'),
+        ("Submitted", str(summary["submitted_count"] + summary["acknowledged_count"])),
+    ]
+    cards_html = "".join(
+        "<div class=\"perf-card\">"
+        f"<div class=\"perf-card-label\">{html.escape(label)}</div>"
+        f"<div class=\"perf-card-value\">{html.escape(value)}</div>"
+        "</div>"
+        for label, value in cards
+    )
+    dept_rows = summary["department_rows"]
+    dept_table = (
+        "<table class=\"data-table\"><thead><tr><th>Department</th><th>Reviews</th>"
+        "<th>Average score</th><th>Best score</th></tr></thead><tbody>"
+        + "".join(
+            "<tr>"
+            f"<td>{html.escape(str(row['department']))}</td>"
+            f"<td>{int(row['reviews'])}</td>"
+            f"<td>{float(row['avg_score']):.2f}</td>"
+            f"<td>{float(row['best_score']):.2f}</td>"
+            "</tr>"
+            for row in dept_rows
+        )
+        + "</tbody></table>"
+    ) if dept_rows else '<div class="empty">No department rollups for this date range yet.</div>'
+
+    top_rows = summary["top_rows"]
+    top_table = (
+        "<table class=\"data-table\"><thead><tr><th>Employee</th><th>Department</th>"
+        "<th>Cycle</th><th>Status</th><th>Score</th></tr></thead><tbody>"
+        + "".join(
+            "<tr>"
+            f"<td>{html.escape(str(row.get('employee_name') or ''))}</td>"
+            f"<td>{html.escape(str(row.get('department') or ''))}</td>"
+            f"<td>{html.escape(str(row.get('cycle') or ''))}</td>"
+            f"<td>{html.escape(str(row.get('status') or ''))}</td>"
+            f"<td>{float(row.get('_score_float') or 0):.2f}</td>"
+            "</tr>"
+            for row in top_rows
+        )
+        + "</tbody></table>"
+    ) if top_rows else '<div class="empty">No scored reviews yet for this range.</div>'
+
+    review_rows = (
+        "<table class=\"data-table\"><thead><tr><th>Date</th><th>Employee</th>"
+        "<th>Department</th><th>Reviewer</th><th>Cycle</th><th>Status</th><th>Score</th></tr></thead><tbody>"
+        + "".join(
+            "<tr>"
+            f"<td>{html.escape(str(row.get('review_date') or ''))}</td>"
+            f"<td><a href=\"/m/performance/{int(row['id'])}\">{html.escape(str(row.get('employee_name') or ''))}</a></td>"
+            f"<td>{html.escape(str(row.get('department') or ''))}</td>"
+            f"<td>{html.escape(str(row.get('reviewer_name') or ''))}</td>"
+            f"<td>{html.escape(str(row.get('cycle') or ''))}</td>"
+            f"<td>{html.escape(str(row.get('status') or ''))}</td>"
+            f"<td>{float(row.get('score') or 0):.2f}</td>"
+            "</tr>"
+            for row in rows
+        )
+        + "</tbody></table>"
+    ) if rows else '<div class="empty">No performance reviews match this date range.</div>'
+
+    return (
+        "<style>"
+        ".perf-toolbar{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:18px}"
+        ".perf-toolbar h1{margin:0;font-size:22px}"
+        ".perf-toolbar .ghost{padding:7px 14px;border:1px solid var(--border);border-radius:6px;"
+        "color:var(--dim);text-decoration:none;font-size:13px}"
+        ".perf-toolbar .ghost:hover{border-color:var(--accent);color:var(--text)}"
+        ".perf-filter{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;"
+        "margin-bottom:18px;padding:14px;border:1px solid var(--border);border-radius:10px;background:var(--panel)}"
+        ".perf-filter label{display:block;font-size:12px;color:var(--dim);margin-bottom:4px}"
+        ".perf-filter input,.perf-filter select{width:100%;padding:8px 10px;border:1px solid var(--border);"
+        "border-radius:6px;background:var(--bg);color:var(--text)}"
+        ".perf-filter .actions{display:flex;gap:8px;align-items:end;flex-wrap:wrap}"
+        ".perf-filter button{padding:8px 14px;border:none;border-radius:6px;background:var(--accent);color:#fff;cursor:pointer}"
+        ".perf-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:18px}"
+        ".perf-card{padding:14px;border:1px solid var(--border);border-radius:10px;background:var(--panel)}"
+        ".perf-card-label{font-size:12px;color:var(--dim);margin-bottom:6px}"
+        ".perf-card-value{font-size:26px;font-weight:700}"
+        ".perf-section{margin-top:20px}"
+        ".perf-section h2{margin:0 0 10px;font-size:15px}"
+        ".perf-sub{color:var(--dim);font-size:13px}"
+        "</style>"
+        "<div class=\"perf-toolbar\">"
+        "<h1>Performance dashboard</h1>"
+        "<a class=\"ghost\" href=\"/m/performance\">Back to reviews</a>"
+        f"<a class=\"ghost\" href=\"/api/m/performance/dashboard/export.csv?{html.escape(query)}\">Export CSV</a>"
+        "</div>"
+        "<div class=\"perf-sub\" style=\"margin-bottom:10px\">"
+        "Choose a date range to generate a month-end performance view for HR and export it for your org."
+        "</div>"
+        "<form class=\"perf-filter\" method=\"GET\" action=\"/m/performance/dashboard\">"
+        f"<div><label>From</label><input type=\"date\" name=\"date_from\" value=\"{html.escape(date_from)}\"></div>"
+        f"<div><label>To</label><input type=\"date\" name=\"date_to\" value=\"{html.escape(date_to)}\"></div>"
+        f"<div><label>Status</label><select name=\"status\">{''.join(status_opts)}</select></div>"
+        "<div class=\"actions\">"
+        "<button type=\"submit\">Build dashboard</button>"
+        "<a class=\"ghost\" href=\"/m/performance/dashboard\">Reset</a>"
+        "</div>"
+        "</form>"
+        f"<div class=\"perf-cards\">{cards_html}</div>"
+        "<div class=\"perf-section\"><h2>Department summary</h2>"
+        "<div class=\"perf-sub\" style=\"margin-bottom:8px\">Average score and volume by department for the selected range.</div>"
+        f"{dept_table}</div>"
+        "<div class=\"perf-section\"><h2>Top reviews</h2>"
+        "<div class=\"perf-sub\" style=\"margin-bottom:8px\">Highest scores in the selected range.</div>"
+        f"{top_table}</div>"
+        "<div class=\"perf-section\"><h2>Review log</h2>"
+        "<div class=\"perf-sub\" style=\"margin-bottom:8px\">Detailed records that will be exported.</div>"
+        f"{review_rows}</div>"
     )
 
 
@@ -389,6 +674,37 @@ def list_view(handler) -> None:
     handler._html(200, _render_page(f"{LABEL} · {app_name()}", body))
 
 
+def dashboard_view(handler) -> None:
+    conn = _conn(handler)
+    parsed = urlparse(getattr(handler, "path", ""))
+    query = parse_qs(parsed.query)
+    date_from_q = str(query.get("date_from", [""])[0] or "").strip()
+    date_to_q = str(query.get("date_to", [""])[0] or "").strip()
+    status_q = str(query.get("status", [""])[0] or "").strip().lower()
+    if not date_from_q and not date_to_q and not status_q:
+        date_from_q, date_to_q = _default_dashboard_range()
+    try:
+        rows = list_dashboard_rows(
+            conn,
+            date_from=date_from_q,
+            date_to=date_to_q,
+            status=status_q,
+        )
+    except ValueError as exc:
+        handler._html(400, _render_page(
+            f"{LABEL} dashboard · {app_name()}",
+            f'<div class="empty">{html.escape(str(exc))}</div>',
+        ))
+        return
+    body = _render_dashboard_page(
+        rows=rows,
+        date_from=date_from_q,
+        date_to=date_to_q,
+        status=status_q,
+    )
+    handler._html(200, _render_page(f"{LABEL} dashboard · {app_name()}", body))
+
+
 def _fmt_dt(value: Any) -> str:
     """Trim fractional seconds from a datetime-ish string for display."""
     if value in (None, ""):
@@ -456,7 +772,48 @@ def detail_view(handler, item_id: int) -> None:
             f">Acknowledge</button>"
         )
 
-    rubric_body = f"<pre>{html.escape(pretty)}</pre>"
+    rubric_body = f"""
+<style>
+  .rubric-editor textarea{{width:100%;min-height:220px;padding:10px 12px;
+    background:var(--bg);color:var(--text);border:1px solid var(--border);
+    border-radius:6px;font-family:'JetBrains Mono','Menlo',monospace;
+    font-size:12.5px;line-height:1.5;resize:vertical}}
+  .rubric-editor .rubric-actions{{display:flex;justify-content:flex-end;gap:8px;
+    margin-top:8px;align-items:center}}
+  .rubric-editor .hint{{margin-right:auto;color:var(--dim);font-size:12px}}
+  .rubric-editor button{{padding:7px 14px;border-radius:6px;background:var(--accent);
+    color:#fff;border:none;cursor:pointer;font-size:12px}}
+</style>
+<div class="rubric-editor">
+  <textarea id="rubric-json" spellcheck="false">{html.escape(pretty)}</textarea>
+  <div class="rubric-actions">
+    <span class="hint">Edit the scoring rubric as JSON. Invalid JSON will not be saved.</span>
+    <button onclick="saveRubric({rid})">Save rubric</button>
+  </div>
+</div>
+<script>
+async function saveRubric(id) {{
+  const el = document.getElementById('rubric-json');
+  const raw = el.value.trim() || '{{}}';
+  try {{ JSON.parse(raw); }}
+  catch (err) {{
+    hrkit.toast('Rubric JSON invalid: ' + err.message, 'error');
+    return;
+  }}
+  const r = await fetch('/api/m/performance/' + id, {{
+    method: 'POST',
+    headers: {{'Content-Type': 'application/json'}},
+    body: JSON.stringify({{rubric_json: raw}}),
+  }});
+  if (r.ok) {{
+    hrkit.toast('Rubric saved', 'success');
+    location.reload();
+  }} else {{
+    hrkit.toast('Save failed: ' + await r.text(), 'error');
+  }}
+}}
+</script>
+"""
     related_html = detail_section(title="Rubric", body_html=rubric_body)
 
     page = render_detail_page(
@@ -469,6 +826,9 @@ def detail_view(handler, item_id: int) -> None:
         item_id=rid,
         api_path="/api/m/performance",
         delete_redirect="/m/performance",
+        exclude_edit_fields={
+            "employee", "reviewer", "status", "submitted_at", "created", "updated",
+        },
     )
     handler._html(200, page)
 
@@ -480,6 +840,42 @@ def detail_api_json(handler, item_id: int) -> None:
         handler._json({"error": "not found"}, code=404)
         return
     handler._json(review)
+
+
+def dashboard_export_api(handler) -> None:
+    conn = _conn(handler)
+    parsed = urlparse(getattr(handler, "path", ""))
+    query = parse_qs(parsed.query)
+    date_from_q = str(query.get("date_from", [""])[0] or "").strip()
+    date_to_q = str(query.get("date_to", [""])[0] or "").strip()
+    status_q = str(query.get("status", [""])[0] or "").strip().lower()
+    if not date_from_q and not date_to_q and not status_q:
+        date_from_q, date_to_q = _default_dashboard_range()
+    try:
+        rows = list_dashboard_rows(
+            conn,
+            date_from=date_from_q,
+            date_to=date_to_q,
+            status=status_q,
+        )
+    except ValueError as exc:
+        handler._json({"error": str(exc)}, code=400)
+        return
+
+    body = build_dashboard_csv(rows).encode("utf-8")
+    label_from = date_from_q or "all"
+    label_to = date_to_q or "all"
+    filename = f"performance-dashboard-{label_from}-to-{label_to}.csv"
+    handler.send_response(200)
+    handler.send_header("Content-Type", "text/csv; charset=utf-8")
+    handler.send_header("Content-Length", str(len(body)))
+    handler.send_header("Cache-Control", "no-store")
+    handler.send_header("Content-Disposition", f'attachment; filename="{filename}"')
+    handler.end_headers()
+    try:
+        handler.wfile.write(body)
+    except (BrokenPipeError, ConnectionError):
+        return
 
 
 def create_api(handler) -> None:
@@ -540,6 +936,8 @@ def acknowledge_api(handler, item_id: int) -> None:
 
 ROUTES = {
     "GET": [
+        (r"^/api/m/performance/dashboard/export\.csv$", dashboard_export_api),
+        (r"^/m/performance/dashboard/?$", dashboard_view),
         (r"^/api/m/performance/(\d+)/?$", detail_api_json),
         (r"^/m/performance/?$", list_view),
         (r"^/m/performance/(\d+)/?$", detail_view),

@@ -22,6 +22,7 @@ from hrkit.branding import composio_api_key
 log = logging.getLogger(__name__)
 
 BASE_URL = "https://backend.composio.dev/api/v1"
+V3_BASE_URL = "https://backend.composio.dev/api/v3"
 DEFAULT_TIMEOUT = 10  # seconds
 
 
@@ -65,7 +66,7 @@ def _request(
         # Drop None-valued params so callers can pass optionals freely.
         clean = {k: v for k, v in params.items() if v is not None}
         if clean:
-            url = f"{url}?{urllib.parse.urlencode(clean)}"
+            url = f"{url}?{urllib.parse.urlencode(clean, doseq=True)}"
 
     data: bytes | None = None
     headers = {
@@ -141,6 +142,78 @@ def _as_list(payload: Any) -> list[dict]:
     return []
 
 
+def _request_v3(
+    conn,
+    method: str,
+    path: str,
+    *,
+    params: dict[str, Any] | None = None,
+    body: dict[str, Any] | None = None,
+) -> Any:
+    """Perform a Composio v3 API request using the documented x-api-key header."""
+    key = _api_key(conn)
+    url = f"{V3_BASE_URL}{path}"
+    if params:
+        clean = {k: v for k, v in params.items() if v is not None}
+        if clean:
+            url = f"{url}?{urllib.parse.urlencode(clean, doseq=True)}"
+
+    data: bytes | None = None
+    headers = {
+        "x-api-key": key,
+        "Accept": "application/json",
+    }
+    if body is not None:
+        data = json.dumps(body).encode("utf-8")
+        headers["Content-Type"] = "application/json"
+
+    req = urllib.request.Request(url, data=data, method=method, headers=headers)
+    try:
+        with urllib.request.urlopen(req, timeout=DEFAULT_TIMEOUT) as resp:
+            status = resp.status
+            raw = resp.read()
+    except urllib.error.HTTPError as e:
+        raw = b""
+        try:
+            raw = e.read()
+        except Exception:  # noqa: BLE001
+            pass
+        text = raw.decode("utf-8", errors="replace")
+        raise ComposioError(
+            f"Composio HTTP {e.code} for {method} /api/v3{path}: {text[:300]}",
+            status=e.code,
+            body=text,
+        ) from e
+    except urllib.error.URLError as e:
+        raise ComposioError(
+            f"Composio transport error for {method} /api/v3{path}: {e.reason}",
+            status=None,
+        ) from e
+    except TimeoutError as e:
+        raise ComposioError(
+            f"Composio request timed out for {method} /api/v3{path}",
+            status=None,
+        ) from e
+
+    if not (200 <= status < 300):
+        text = raw.decode("utf-8", errors="replace")
+        raise ComposioError(
+            f"Composio HTTP {status} for {method} /api/v3{path}: {text[:300]}",
+            status=status,
+            body=text,
+        )
+    if not raw:
+        return {}
+    try:
+        return json.loads(raw.decode("utf-8"))
+    except json.JSONDecodeError as e:
+        raise ComposioError(
+            f"Composio returned non-JSON body for {method} /api/v3{path}",
+            status=status,
+            body=raw.decode("utf-8", errors="replace"),
+        ) from e
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -156,14 +229,59 @@ def is_configured(conn) -> bool:
 
 def list_apps(conn) -> list[dict]:
     """List apps known to Composio (Gmail, Slack, ...)."""
+    try:
+        payload = _request_v3(conn, "GET", "/toolkits", params={"limit": 1000})
+        return _as_list(payload)
+    except ComposioError as exc:
+        log.info("Composio v3 /toolkits failed, falling back to v1 /apps: %s", exc)
     payload = _request(conn, "GET", "/apps")
     return _as_list(payload)
 
 
 def list_connections(conn) -> list[dict]:
     """List the user's connected accounts."""
+    try:
+        payload = _request_v3(conn, "GET", "/connected_accounts")
+        return _as_list(payload)
+    except ComposioError as exc:
+        log.info(
+            "Composio v3 /connected_accounts failed, falling back to v1 "
+            "/connectedAccounts: %s",
+            exc,
+        )
     payload = _request(conn, "GET", "/connectedAccounts")
     return _as_list(payload)
+
+
+def list_tools(
+    conn,
+    *,
+    toolkit_slug: str | None = None,
+    search: str | None = None,
+    limit: int | None = 200,
+) -> list[dict]:
+    """List available tools from the documented v3 ``/tools`` endpoint."""
+    params: dict[str, Any] = {"limit": limit}
+    if toolkit_slug:
+        params["toolkit_slug"] = toolkit_slug
+    if search:
+        params["search"] = search
+    payload = _request_v3(conn, "GET", "/tools", params=params)
+    return _as_list(payload)
+
+
+def get_tool(conn, action_slug: str) -> dict:
+    """Fetch one tool schema from ``GET /api/v3/tools/{tool_slug}``."""
+    if not action_slug:
+        raise ComposioError("action_slug is required", status=None)
+    safe_slug = urllib.parse.quote(action_slug, safe="")
+    payload = _request_v3(
+        conn,
+        "GET",
+        f"/tools/{safe_slug}",
+        params={"toolkit_versions": "latest"},
+    )
+    return payload if isinstance(payload, dict) else {"raw": payload}
 
 
 def init_connection(
@@ -216,6 +334,56 @@ def get_connection(conn, connected_account_id: str) -> dict:
     return payload if isinstance(payload, dict) else {"raw": payload}
 
 
+def create_mcp_server(
+    conn,
+    *,
+    name: str,
+    toolkits: list[str],
+    allowed_tools: list[str],
+) -> dict:
+    """Create a docs-compatible Composio MCP server for selected tools."""
+    body = {
+        "name": name,
+        "toolkits": toolkits,
+        "allowed_tools": allowed_tools,
+        "managed_auth_via_composio": True,
+    }
+    payload = _request_v3(conn, "POST", "/mcp/servers/custom", body=body)
+    return payload if isinstance(payload, dict) else {"raw": payload}
+
+
+def update_mcp_server(
+    conn,
+    server_id: str,
+    *,
+    name: str | None = None,
+    toolkits: list[str] | None = None,
+    allowed_tools: list[str] | None = None,
+) -> dict:
+    """Update a Composio MCP server's toolkit/tool allow-list."""
+    if not server_id:
+        raise ComposioError("server_id is required", status=None)
+    body: dict[str, Any] = {}
+    if name is not None:
+        body["name"] = name
+    if toolkits is not None:
+        body["toolkits"] = toolkits
+    if allowed_tools is not None:
+        body["allowed_tools"] = allowed_tools
+    safe_id = urllib.parse.quote(server_id, safe="")
+    payload = _request_v3(conn, "PATCH", f"/mcp/{safe_id}", body=body)
+    return payload if isinstance(payload, dict) else {"raw": payload}
+
+
+def get_mcp_server(conn, server_id: str) -> dict:
+    """Fetch Composio MCP server details by id."""
+    if not server_id:
+        raise ComposioError("server_id is required", status=None)
+    safe_id = urllib.parse.quote(server_id, safe="")
+    payload = _request_v3(conn, "GET", f"/mcp/{safe_id}")
+    return payload if isinstance(payload, dict) else {"raw": payload}
+
+
 def execute_action(
     conn,
     action_slug: str,
@@ -243,15 +411,19 @@ def health_check(conn) -> dict:
     if not configured:
         return {"ok": False, "configured": False}
     try:
-        _request(conn, "GET", "/apps")
+        _request_v3(conn, "GET", "/toolkits", params={"limit": 1})
         return {"ok": True, "configured": True}
     except ComposioError as e:
-        return {
-            "ok": False,
-            "configured": True,
-            "error": str(e),
-            "status": e.status,
-        }
+        try:
+            _request(conn, "GET", "/apps")
+            return {"ok": True, "configured": True}
+        except ComposioError as fallback:
+            return {
+                "ok": False,
+                "configured": True,
+                "error": str(fallback or e),
+                "status": fallback.status or e.status,
+            }
     except Exception as e:  # noqa: BLE001 - health_check must never crash
         log.exception("composio.health_check: unexpected error")
         return {"ok": False, "configured": True, "error": str(e)}

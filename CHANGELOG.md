@@ -4,6 +4,24 @@ All notable changes to HR-Kit are documented here. Format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.1.1] - 2026-04-29
+
+### Added
+- Employee detail workspace controls for local HR files, HR notes, custom fields,
+  reporting edits, and safer employee-folder synchronization.
+- Performance dashboard date ranges and CSV exports for month-end HR reporting.
+- Composio MCP sync from the Integrations page, including enabled-tool mirroring
+  and chat-agent tools for search, schema lookup, execution, and connection
+  management.
+
+### Fixed
+- UpfynAI model loading now sends browser-safe headers and filters voice/audio
+  models out of chat-only selectors.
+- Onboarding can move backward, uses the UpfynAI label consistently, and handles
+  API-key/model setup more reliably.
+- Project timesheet and approval UI wiring now supports HR edits without dropping
+  related local data.
+
 ## [1.1.0] — 2026-04-27
 
 Phase-2 expansion: 23 new modules covering the gaps vs Frappe HRMS, Odoo HR,

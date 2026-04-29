@@ -140,7 +140,11 @@ def _render_list_html(rows: list[dict[str, Any]],
         cells = "".join(f"<td>{_esc(row.get(c))}</td>" for c in LIST_COLUMNS)
         body_rows.append(
             f'<tr data-id="{row["id"]}">{cells}'
-            f'<td><button onclick="deleteRow({row["id"]})">Delete</button></td></tr>'
+            f'<td style="display:flex;gap:8px;align-items:center">'
+            f'<a href="/m/department/{row["id"]}" '
+            f'style="padding:6px 12px;border:1px solid var(--border);border-radius:6px;'
+            f'color:var(--text);text-decoration:none;font-size:12px">Open</a>'
+            f'<button onclick="deleteRow({row["id"]})">Delete</button></td></tr>'
         )
     emp_opts = "".join(
         f'<option value="{e["id"]}">{_esc(e["label"])}</option>' for e in employees
@@ -281,7 +285,63 @@ def detail_view(handler, item_id: int) -> None:
     else:
         emp_body = '<div class="empty">No employees in this department.</div>'
 
-    related_html = detail_section(title="Employees", body_html=emp_body)
+    current_head = row.get("head_employee_id")
+    head_options = ['<option value="">-- no head --</option>']
+    for emp in _list_employees(conn):
+        sel = " selected" if current_head and int(current_head) == int(emp["id"]) else ""
+        head_options.append(
+            f'<option value="{int(emp["id"])}"{sel}>{_esc(emp["label"])}</option>'
+        )
+    current_parent = row.get("parent_department_id")
+    parent_options = ['<option value="">-- no parent --</option>']
+    for parent in _list_departments(conn, exclude_id=int(item_id)):
+        sel = (
+            " selected"
+            if current_parent and int(current_parent) == int(parent["id"])
+            else ""
+        )
+        parent_options.append(
+            f'<option value="{int(parent["id"])}"{sel}>{_esc(parent["label"])}</option>'
+        )
+    controls_body = f"""
+<style>
+  .dept-link-row{{display:flex;gap:8px;align-items:center;margin-bottom:10px}}
+  .dept-link-row label{{flex:0 0 112px;color:var(--dim);font-size:12px;margin:0}}
+  .dept-link-row select{{flex:1;padding:7px 10px;background:var(--bg);
+    color:var(--text);border:1px solid var(--border);border-radius:6px;font-size:13px}}
+  .dept-link-row button{{padding:7px 14px;border-radius:6px;background:var(--accent);
+    color:#fff;border:none;cursor:pointer;font-size:12px}}
+</style>
+<div class="dept-link-row">
+  <label>Head employee</label>
+  <select id="dept-head-picker">{''.join(head_options)}</select>
+  <button onclick="saveDepartmentLink({int(item_id)},'head_employee_id','dept-head-picker')">Update</button>
+</div>
+<div class="dept-link-row">
+  <label>Parent dept.</label>
+  <select id="dept-parent-picker">{''.join(parent_options)}</select>
+  <button onclick="saveDepartmentLink({int(item_id)},'parent_department_id','dept-parent-picker')">Update</button>
+</div>
+<script>
+async function saveDepartmentLink(id, field, pickerId) {{
+  const sel = document.getElementById(pickerId);
+  const payload = {{}};
+  payload[field] = sel.value === '' ? null : parseInt(sel.value, 10);
+  const r = await fetch('/api/m/department/' + id, {{
+    method: 'POST',
+    headers: {{'Content-Type': 'application/json'}},
+    body: JSON.stringify(payload),
+  }});
+  if (r.ok) location.reload();
+  else hrkit.toast('Update failed: ' + await r.text(), 'error');
+}}
+</script>
+"""
+
+    related_html = (
+        detail_section(title="Department controls", body_html=controls_body)
+        + detail_section(title="Employees", body_html=emp_body)
+    )
 
     html = render_detail_page(
         title=row.get("name") or "Department",
@@ -292,6 +352,9 @@ def detail_view(handler, item_id: int) -> None:
         item_id=int(item_id),
         api_path=f"/api/m/{NAME}",
         delete_redirect=f"/m/{NAME}",
+        exclude_edit_fields={
+            "head_employee", "parent_department", "created", "updated",
+        },
     )
     handler._html(200, html)
 

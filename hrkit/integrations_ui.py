@@ -92,6 +92,16 @@ def _actions_for(conn: sqlite3.Connection, slug: str) -> list[dict[str, Any]]:
     return decorated
 
 
+def _enabled_tool_slugs(state: dict[str, Any]) -> list[str]:
+    """Return enabled Composio action slugs from a get_state payload."""
+    slugs: list[str] = []
+    for app in state.get("connected") or []:
+        for action in app.get("actions") or []:
+            if action.get("enabled") and action.get("slug"):
+                slugs.append(str(action["slug"]).upper())
+    return sorted(set(slugs))
+
+
 def search_apps(conn: sqlite3.Connection, query: str = "",
                 limit: int = 60) -> list[dict[str, Any]]:
     """Return apps matching ``query`` from the live Composio catalog.
@@ -140,6 +150,7 @@ def get_state(conn: sqlite3.Connection) -> dict[str, Any]:
             "configured": False,
             "connected": [],
             "available": list(CURATED_APPS),
+            "mcp": composio_sdk.mcp_state(conn),
         }
 
     connected_map = _connected_by_slug(conn)
@@ -167,6 +178,7 @@ def get_state(conn: sqlite3.Connection) -> dict[str, Any]:
         "configured": True,
         "connected": connected,
         "available": available,
+        "mcp": composio_sdk.mcp_state(conn),
     }
 
 
@@ -250,6 +262,14 @@ _PAGE_BODY = r"""
   color:var(--dim);border:1px solid var(--border);cursor:pointer;font-size:11px;
   text-transform:none;letter-spacing:0}
 .ghost-btn:hover{color:var(--text);border-color:var(--accent)}
+.mcp-panel{background:var(--panel);border:1px solid var(--border);border-radius:8px;
+  padding:14px 16px;margin-bottom:18px;display:grid;gap:8px}
+.mcp-panel .mcp-top{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}
+.mcp-panel h3{margin:0;font-size:14px}
+.mcp-panel p{margin:0;color:var(--dim);font-size:12.5px;line-height:1.5}
+.mcp-panel code{background:var(--bg);padding:2px 6px;border-radius:4px;word-break:break-all}
+.mcp-panel button{padding:6px 12px;border-radius:6px;background:var(--accent);
+  color:#fff;border:none;cursor:pointer;font-size:12px;font-weight:500}
 </style>
 <div class="intg-shell">
   <div class="intg-head">
@@ -295,6 +315,28 @@ function statusBadge(status) {
   if (s === 'active') return '<span class="badge active">Connected</span>';
   if (s === 'expired' || s === 'failed') return '<span class="badge expired">' + escapeHtml(status) + '</span>';
   return '<span class="badge idle">' + escapeHtml(status || 'pending') + '</span>';
+}
+
+function renderMcpPanel(state) {
+  const mcp = state.mcp || {};
+  const enabledCount = (state.connected || []).reduce((total, app) => {
+    return total + (app.actions || []).filter(a => a.enabled).length;
+  }, 0);
+  const connectedCount = (state.connected || []).length;
+  const details = mcp.configured
+    ? '<p>MCP server <code>' + escapeHtml(mcp.server_id) + '</code> is synced with ' +
+      escapeHtml((mcp.allowed_tools || []).length) + ' allowed tool(s).</p>' +
+      (mcp.server_url ? '<p>URL: <code>' + escapeHtml(mcp.server_url) + '</code></p>' : '')
+    : '<p>No MCP server synced yet. Sync after connecting apps so MCP clients see the same enabled tools HR selected here.</p>';
+  return (
+    '<div class="mcp-panel">' +
+    '<div class="mcp-top"><div>' +
+    '<h3>Composio MCP tool access</h3>' +
+    '<p>' + connectedCount + ' connected app(s), ' + enabledCount + ' enabled tool(s). Tool toggles below also control the in-app AI assistant.</p>' +
+    '</div><button onclick="syncMcp()" ' + (connectedCount ? '' : 'disabled') + '>Sync MCP tools</button></div>' +
+    details +
+    '</div>'
+  );
 }
 
 function renderToolRow(appSlug, tool) {
@@ -369,6 +411,7 @@ function render(state) {
     return;
   }
   const parts = [];
+  parts.push(renderMcpPanel(state));
   parts.push('<div class="section-title">Connected (' + state.connected.length + ')</div>');
   if (state.connected.length === 0) {
     parts.push('<div class="empty">No connected apps yet. Click <b>Connect a new app</b> below to get started.</div>');
@@ -472,9 +515,25 @@ async function toggleTool(el, slug) {
     const data = await r.json();
     if (!r.ok || !data.ok) throw new Error(data.error || 'toggle failed');
     el.classList.toggle('on', enable);
-    toast((enable ? 'Enabled ' : 'Disabled ') + slug, 'ok');
+    toast((enable ? 'Enabled ' : 'Disabled ') + slug + '. Sync MCP to update external clients.', 'ok');
   } catch (err) {
     toast('Toggle failed: ' + (err.message || err), 'error');
+  }
+}
+
+async function syncMcp() {
+  toast('Syncing Composio MCP tools…');
+  try {
+    const r = await fetch('/api/integrations/mcp/sync', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({}),
+    });
+    const data = await r.json();
+    if (!r.ok || !data.ok) throw new Error(data.error || 'MCP sync failed');
+    toast('MCP synced: ' + data.allowed_tools.length + ' tool(s) allowed', 'ok');
+    loadState(false);
+  } catch (err) {
+    toast('MCP sync failed: ' + (err.message || err), 'error');
   }
 }
 
@@ -589,6 +648,34 @@ def handle_tool_test(handler, body: dict[str, Any]) -> None:
     })
 
 
+def handle_mcp_sync(handler, body: dict[str, Any] | None = None) -> None:
+    """POST /api/integrations/mcp/sync — mirror UI tool toggles to MCP."""
+    conn = handler.server.conn  # type: ignore[attr-defined]
+    try:
+        state = get_state(conn)
+        toolkits = [str(app["slug"]) for app in state.get("connected") or [] if app.get("slug")]
+        allowed_tools = _enabled_tool_slugs(state)
+        result = composio_sdk.sync_mcp_server(
+            conn,
+            toolkits=toolkits,
+            allowed_tools=allowed_tools,
+        )
+    except Exception as exc:  # noqa: BLE001
+        log.exception("integrations MCP sync failed")
+        handler._json({"ok": False, "error": str(exc)}, code=500)
+        return
+    if not result.get("ok"):
+        handler._json({"ok": False, "error": result.get("error", "MCP sync failed")}, code=400)
+        return
+    handler._json({
+        "ok": True,
+        "server_id": result.get("server_id", ""),
+        "server_url": result.get("server_url", ""),
+        "toolkits": result.get("toolkits", []),
+        "allowed_tools": result.get("allowed_tools", []),
+    })
+
+
 __all__ = [
     "CURATED_APPS",
     "get_state",
@@ -597,4 +684,5 @@ __all__ = [
     "handle_connect",
     "handle_tool_toggle",
     "handle_tool_test",
+    "handle_mcp_sync",
 ]
