@@ -242,3 +242,86 @@ def test_handle_document_upload_inserts_row(tmp_path, conn):
     assert row["employee_id"] == emp_id
     assert row["doc_type"] == "Contract"
     assert row["file_path"] == rel
+
+
+def test_handle_document_upload_honors_explicit_filename(tmp_path, conn):
+    emp_id = conn.execute(
+        "INSERT INTO employee (employee_code, full_name, email)"
+        " VALUES (?, ?, ?)",
+        ("EMP-NAME", "Named Upload", "named@example.com"),
+    ).lastrowid
+    conn.commit()
+
+    boundary = "----HrkitUploadRename"
+    body = _make_multipart(boundary, [
+        {"name": "employee_id", "value": str(emp_id)},
+        {"name": "doc_type", "value": "Policy"},
+        {"name": "filename", "value": "renamed-policy.txt"},
+        {"name": "file", "filename": "original.txt",
+         "content_type": "text/plain",
+         "value": b"renamed bytes"},
+    ])
+    handler = _FakeHandler(body=body, headers={
+        "Content-Type": f"multipart/form-data; boundary={boundary}",
+        "Content-Length": str(len(body)),
+    }, conn=conn, root=tmp_path)
+    uploads.handle_document_upload(handler)
+
+    code, payload = handler.json_responses[0]
+    assert code == 201
+    assert payload["ok"] is True
+    assert payload["file_path"].endswith("/renamed-policy.txt")
+    assert (tmp_path / payload["file_path"]).read_bytes() == b"renamed bytes"
+
+
+def test_handle_chat_upload_saves_attachment(tmp_path):
+    conn = sqlite3.connect(":memory:")
+    boundary = "----HrkitChatUpload"
+    body = _make_multipart(boundary, [
+        {"name": "file", "filename": "chat-note.txt",
+         "content_type": "text/plain",
+         "value": b"hello from chat attach"},
+    ])
+    handler = _FakeHandler(body=body, headers={
+        "Content-Type": f"multipart/form-data; boundary={boundary}",
+        "Content-Length": str(len(body)),
+    }, conn=conn, root=tmp_path)
+
+    uploads.handle_chat_upload(handler)
+
+    assert handler.json_responses, "expected JSON response"
+    code, payload = handler.json_responses[0]
+    assert code == 201, payload
+    assert payload["ok"] is True
+    assert payload["filename"] == "chat-note.txt"
+    assert payload["rel_path"].endswith("/chat-note.txt")
+    assert (tmp_path / payload["rel_path"]).read_bytes() == b"hello from chat attach"
+
+
+def test_serve_uploaded_file_can_render_inline(tmp_path, conn):
+    emp_id = conn.execute(
+        "INSERT INTO employee (employee_code, full_name, email)"
+        " VALUES (?, ?, ?)",
+        ("EMP-VIEW", "Viewer", "viewer@example.com"),
+    ).lastrowid
+    conn.commit()
+    rel = uploads.save_uploaded_file(
+        workspace_root=tmp_path,
+        employee_id=int(emp_id),
+        filename="note.txt",
+        data=b"hello viewer",
+        conn=conn,
+    )
+    doc_id = conn.execute(
+        "INSERT INTO document (employee_id, doc_type, filename, file_path)"
+        " VALUES (?, ?, ?, ?)",
+        (emp_id, "Note", "note.txt", rel),
+    ).lastrowid
+    conn.commit()
+
+    handler = _FakeHandler(body=b"", headers={}, conn=conn, root=tmp_path)
+    uploads.serve_uploaded_file(handler, int(doc_id), inline=True)
+
+    assert handler.status_code == 200
+    assert ("Content-Disposition", "inline; filename*=UTF-8''note.txt") in handler.sent_headers
+    assert handler.wfile.getvalue() == b"hello viewer"

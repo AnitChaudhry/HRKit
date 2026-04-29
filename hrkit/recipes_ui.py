@@ -170,7 +170,7 @@ def build_recipe_tools(conn, workspace_root: Path) -> list:
 # ---------------------------------------------------------------------------
 _PAGE_BODY = r"""
 <style>
-.rec-shell{max-width:1080px;margin:0 auto;padding:8px 0 40px}
+.rec-shell{width:100%;margin:0;padding:8px 0 40px}
 .rec-head{display:flex;justify-content:space-between;align-items:flex-start;
   gap:14px;margin-bottom:18px}
 .rec-head h1{margin:0;font-size:22px;font-weight:600;letter-spacing:-0.01em}

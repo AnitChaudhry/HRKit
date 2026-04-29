@@ -167,8 +167,10 @@ def test_donut_skips_zero_values():
         {"label": "Hired", "value": 0},
         {"label": "Active", "value": 1},
     ])
-    # only the non-zero slice is drawn
-    assert html.count("<path d=") == 1
+    # only the non-zero slice is drawn; a 100% slice must be a visible circle,
+    # not a zero-length arc path.
+    assert html.count("<path d=") == 0
+    assert "<circle" in html
 
 
 # ---------------------------------------------------------------------------
@@ -196,3 +198,12 @@ def test_bar_uses_palette_when_no_color_specified():
     html = t.render_bar_svg([{"label": "X", "value": 1}])
     # palette starts with var(--accent)
     assert "var(--accent)" in html
+
+
+def test_bar_single_point_keeps_wide_dashboard_aspect():
+    html = t.render_bar_svg([{"label": "2026-03", "value": 1}])
+    match = re.search(r'viewBox="0 0 (\d+) (\d+)"', html)
+    assert match is not None
+    width, height = map(int, match.groups())
+    assert width >= 420
+    assert width > height

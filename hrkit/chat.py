@@ -27,7 +27,7 @@ from typing import Any, Callable
 from pathlib import Path
 
 from hrkit import (
-    ai, ai_tools, branding, chat_storage, composio_sdk,
+    ai, ai_tools, artifacts, branding, chat_storage, composio_sdk,
     employee_fs, recipes_ui, sandbox, uploads,
 )
 from hrkit.templates import render_module_page
@@ -549,7 +549,142 @@ def _build_workspace_fs_tools(workspace_root: Path | None,
     return [read_file, write_file, append_file, make_folder, list_workspace]
 
 
-def _build_composio_action_tools(conn) -> list[Callable[..., str]]:
+def _audit_artifact(conn: Any, action: str, artifact: dict[str, Any]) -> None:
+    _record_ai_audit(
+        conn, action=f"workspace.{action}", module="workspace",
+        entity_id=None,
+        changes={
+            "rel_path": artifact.get("rel_path"),
+            "filename": artifact.get("filename"),
+            "kind": artifact.get("kind"),
+            "size": artifact.get("size"),
+        },
+    )
+
+
+def _build_artifact_tools(
+    workspace_root: Path | None,
+    conn: Any = None,
+    *,
+    employee_code: str | None = None,
+    conversation_id: str = "",
+    saved_artifacts: list[dict[str, Any]] | None = None,
+) -> list[Callable[..., str]]:
+    """Tools that save AI-created content into the local artifact library."""
+    if workspace_root is None:
+        return []
+    root = Path(workspace_root)
+
+    def save_artifact(kind: str, title: str, body: str, filename: str = "") -> str:
+        """Save generated content into the workspace artifact folder.
+
+        Args:
+          kind: one of markdown, html, email, pdf, csv, json, text.
+          title: human-readable title used for the filename when filename is empty.
+          body: the content to save.
+          filename: optional explicit filename.
+
+        Returns JSON with rel_path so the user can open it from Workspace files.
+        """
+        try:
+            item = artifacts.save_artifact_by_kind(
+                root,
+                kind=kind,
+                title=title,
+                body=body,
+                filename=filename,
+                conversation_id=conversation_id,
+                employee_code=employee_code,
+            )
+        except Exception as exc:  # noqa: BLE001
+            return f"error: save_artifact failed: {exc}"
+        _audit_artifact(conn, "save_artifact", item)
+        if saved_artifacts is not None:
+            saved_artifacts.append(item)
+        return json.dumps({"ok": True, **item}, ensure_ascii=False)
+
+    def create_pdf(title: str, body: str, filename: str = "") -> str:
+        """Create a simple PDF report in the workspace artifact folder.
+
+        Use this when HR asks for a PDF/exportable report and the content is
+        mostly text. For rich layouts, save HTML too.
+        """
+        try:
+            item = artifacts.save_pdf_artifact(
+                root,
+                conversation_id=conversation_id,
+                employee_code=employee_code,
+                title=title,
+                body=body,
+                filename=filename,
+            )
+        except Exception as exc:  # noqa: BLE001
+            return f"error: create_pdf failed: {exc}"
+        _audit_artifact(conn, "create_pdf", item)
+        if saved_artifacts is not None:
+            saved_artifacts.append(item)
+        return json.dumps({"ok": True, **item}, ensure_ascii=False)
+
+    for fn in (save_artifact, create_pdf):
+        setattr(fn, "network", False)
+    return [save_artifact, create_pdf]
+
+
+def _build_builtin_tools(
+    workspace_root: Path | None,
+    conn: Any = None,
+    *,
+    employee_code: str | None = None,
+    conversation_id: str = "",
+    saved_artifacts: list[dict[str, Any]] | None = None,
+) -> list[Callable[..., str]]:
+    """Wrap built-in web tools so successful results are saved locally."""
+
+    def _save_web_result(query_or_url: str, result: str, source_type: str) -> str:
+        if not workspace_root or not result or result.startswith("error:"):
+            return ""
+        try:
+            item = artifacts.save_web_result(
+                workspace_root,
+                query_or_url=query_or_url,
+                result=result,
+                source_type=source_type,
+                conversation_id=conversation_id,
+                employee_code=employee_code,
+            )
+            _audit_artifact(conn, source_type, item)
+            if saved_artifacts is not None:
+                saved_artifacts.append(item)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("web artifact autosave failed: %s", exc)
+            return ""
+        return f"\n\nSaved locally: {item['rel_path']}"
+
+    def web_search(query: str) -> str:
+        """Search the web and save the result list to the local artifact folder."""
+        result = ai_tools.web_search(query)
+        return result + _save_web_result(query, result, "web_search")
+
+    def web_fetch(url: str) -> str:
+        """Fetch a URL and save the readable text to the local artifact folder."""
+        result = ai_tools.web_fetch(url)
+        return result + _save_web_result(url, result, "web_fetch")
+
+    web_search.__name__ = ai_tools.WEB_SEARCH_SLUG
+    web_fetch.__name__ = ai_tools.WEB_FETCH_SLUG
+    web_search.network = True  # type: ignore[attr-defined]
+    web_fetch.network = True  # type: ignore[attr-defined]
+    return [web_search, web_fetch]
+
+
+def _build_composio_action_tools(
+    conn,
+    workspace_root: Path | None = None,
+    *,
+    employee_code: str | None = None,
+    conversation_id: str = "",
+    saved_artifacts: list[dict[str, Any]] | None = None,
+) -> list[Callable[..., str]]:
     """Wrap configured Composio/MCP handlers as direct agent-callable tools.
 
     Returns an empty list when no Composio key is on file. We expose
@@ -651,6 +786,25 @@ def _build_composio_action_tools(conn) -> list[Callable[..., str]]:
         if slug in disabled_tools:
             return f"error: {slug} is disabled by HR on the Integrations page"
         args = _json_args(arguments)
+        if workspace_root is not None and "EMAIL" in slug:
+            try:
+                subject = str(args.get("subject") or args.get("title") or "Composio email draft")
+                to = args.get("to") or args.get("recipient") or args.get("email") or ""
+                body = args.get("body") or args.get("text") or args.get("message") or ""
+                html_body = str(args.get("html") or args.get("html_body") or "")
+                item = artifacts.save_email_artifact(
+                    workspace_root,
+                    conversation_id=conversation_id,
+                    employee_code=employee_code,
+                    title=subject,
+                    body=f"To: {to}\nSubject: {subject}\n\n{body}",
+                    html_body=html_body,
+                )
+                _audit_artifact(conn, "email_draft", item)
+                if saved_artifacts is not None:
+                    saved_artifacts.append(item)
+            except Exception as exc:  # noqa: BLE001
+                log.warning("generic email draft autosave failed: %s", exc)
         result = composio_sdk.execute_action(conn, slug, args)
         _record_ai_audit(
             conn, action=f"composio.{slug}", module="composio",
@@ -677,6 +831,21 @@ def _build_composio_action_tools(conn) -> list[Callable[..., str]]:
 
         Returns the raw Composio response as JSON, or an error string.
         """
+        if workspace_root is not None:
+            try:
+                item = artifacts.save_email_artifact(
+                    workspace_root,
+                    conversation_id=conversation_id,
+                    employee_code=employee_code,
+                    title=subject or "AI email draft",
+                    body=f"To: {to}\nSubject: {subject}\n\n{body}",
+                    html_body=html,
+                )
+                _audit_artifact(conn, "email_draft", item)
+                if saved_artifacts is not None:
+                    saved_artifacts.append(item)
+            except Exception as exc:  # noqa: BLE001
+                log.warning("email draft autosave failed: %s", exc)
         result = composio_actions.send_offer_email(
             {"name": to, "email": to, "subject": subject,
              "body": html or body, "position": ""},
@@ -859,8 +1028,10 @@ def _build_system_prompt(conn=None) -> str:
         " You operate inside a sandboxed full-capability agent harness:"
         " web_search(query) and web_fetch(url) for live web lookups;"
         " read_file / write_file / append_file / make_folder /"
-        " list_workspace for the workspace folder (create reports under"
-        " reports/, exports under exports/, employee files under"
+        " list_workspace for the workspace folder; save_artifact(kind,"
+        " title, body, filename?) and create_pdf(title, body, filename?)"
+        " for HTML dashboards, email drafts, PDFs, web notes, reports;"
+        " create reports under reports/, exports under exports/, and"
         " employees/<EMP-CODE>/ — every path stays inside the workspace);"
         " plus any Composio actions (send_email, create_calendar_event,"
         " upload_to_drive, send_signature_request, ...) that the operator"
@@ -940,6 +1111,202 @@ def _augment_with_attachments(
     return "\n".join(pieces).strip() or message
 
 
+def _is_retryable_provider_reply(text: str) -> bool:
+    """Return True when the provider returned a busy/error sentence as text."""
+    lower = str(text or "").strip().lower()
+    busy_markers = (
+        "servers are experiencing brief congestion",
+        "please retry your message",
+        "temporarily unavailable",
+        "try again later",
+        "server is busy",
+    )
+    return bool(lower) and any(marker in lower for marker in busy_markers)
+
+
+def _prepare_chat_run(handler, body: dict[str, Any]) -> dict[str, Any]:
+    """Validate a chat request and build the prompt/tools for one agent run."""
+    body = body or {}
+    message = (body.get("message") or "").strip()
+    attachments_in = body.get("attachments") or []
+    if not message and not attachments_in:
+        raise ValueError("message or attachment required")
+
+    conn = handler.server.conn  # type: ignore[attr-defined]
+    workspace_root = _workspace_root_for(handler)
+
+    # Inline attachment text so the AI can read files the user pinned.
+    full_message = _augment_with_attachments(workspace_root, message, attachments_in)
+    prompt = _format_history(body.get("history"), full_message)
+
+    # Optional per-employee context: when the chat is "talking about" someone,
+    # prefix the system prompt with their full record + notes.
+    employee_id_raw = body.get("employee_id")
+    employee_code_for_save: str | None = None
+    try:
+        employee_id = int(employee_id_raw) if employee_id_raw else None
+    except (TypeError, ValueError):
+        employee_id = None
+    system = _build_system_prompt(conn)
+    if employee_id and workspace_root is not None:
+        try:
+            ctx = employee_fs.build_ai_context(conn, workspace_root, employee_id)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("build_ai_context failed: %s", exc)
+            ctx = ""
+        if ctx:
+            system += "\n\n--- Employee context ---\n" + ctx
+        row = conn.execute(
+            "SELECT employee_code FROM employee WHERE id = ?", (employee_id,),
+        ).fetchone()
+        if row and row["employee_code"]:
+            employee_code_for_save = str(row["employee_code"]).strip() or None
+
+    conversation_id = (body.get("conversation_id") or "").strip()
+    if not conversation_id and workspace_root is not None:
+        conversation_id = chat_storage.new_conversation_id(message)
+    run_artifacts: list[dict[str, Any]] = []
+
+    tool = _build_query_tool(conn)
+    # Build the candidate tool list. The agent is a full-capability sandboxed
+    # agent by default. ``filter_tools`` drops network-touching tools only when
+    # the user has explicitly turned AI_LOCAL_ONLY back on.
+    tools: list = [
+        tool,
+        *_build_imported_table_tools(conn),
+        *_build_workspace_fs_tools(workspace_root, conn),
+        *_build_artifact_tools(
+            workspace_root, conn,
+            employee_code=employee_code_for_save,
+            conversation_id=conversation_id,
+            saved_artifacts=run_artifacts,
+        ),
+        *_build_composio_action_tools(
+            conn, workspace_root,
+            employee_code=employee_code_for_save,
+            conversation_id=conversation_id,
+            saved_artifacts=run_artifacts,
+        ),
+        *_build_builtin_tools(
+            workspace_root, conn,
+            employee_code=employee_code_for_save,
+            conversation_id=conversation_id,
+            saved_artifacts=run_artifacts,
+        ),
+    ]
+    if workspace_root is not None:
+        try:
+            tools.extend(recipes_ui.build_recipe_tools(conn, workspace_root))
+        except Exception as exc:  # noqa: BLE001
+            log.warning("recipes_ui.build_recipe_tools failed: %s", exc)
+    tools = sandbox.filter_tools(tools, conn)
+
+    model_override = (body.get("model") or "").strip() or None
+    model_to_check = model_override or branding.ai_model(conn)
+    model_error = _model_override_error(conn, model_to_check)
+    if model_error:
+        raise ValueError(model_error)
+
+    return {
+        "body": body,
+        "conn": conn,
+        "workspace_root": workspace_root,
+        "message": message,
+        "attachments": attachments_in,
+        "prompt": prompt,
+        "system": system,
+        "tools": tools,
+        "model": model_override,
+        "employee_code": employee_code_for_save,
+        "conversation_id": conversation_id,
+        "history": body.get("history") or [],
+        "tool_artifacts": run_artifacts,
+    }
+
+
+def _persist_chat_turn(
+    *,
+    conn: Any = None,
+    workspace_root: Path | None,
+    conversation_id: str,
+    message: str,
+    attachments: list[dict[str, Any]],
+    history: list[dict[str, Any]],
+    reply: str,
+    model: str | None,
+    employee_code: str | None,
+    tool_artifacts: list[dict[str, Any]] | None = None,
+) -> tuple[str, bool, int, list[dict[str, Any]]]:
+    """Persist a completed turn and autosave user-visible artifacts."""
+    persisted = False
+    turn_count = 0
+    saved_artifacts: list[dict[str, Any]] = list(tool_artifacts or [])
+    if workspace_root:
+        try:
+            if not conversation_id:
+                conversation_id = chat_storage.new_conversation_id(message)
+            # Reload prior messages so we append rather than overwrite.
+            existing = chat_storage.load_conversation(
+                workspace_root=workspace_root,
+                conversation_id=conversation_id,
+                employee_code=employee_code,
+            ) or {}
+            messages = list(existing.get("messages") or history or [])
+            messages.append({
+                "role": "user", "content": message, "attachments": attachments,
+            })
+            messages.append({"role": "assistant", "content": reply})
+            chat_storage.save_conversation(
+                workspace_root=workspace_root,
+                conversation_id=conversation_id,
+                messages=messages,
+                model=model,
+                employee_code=employee_code,
+            )
+            persisted = True
+            turn_count = len(messages)
+            reply_artifacts = artifacts.autosave_chat_reply(
+                workspace_root,
+                conversation_id=conversation_id,
+                employee_code=employee_code,
+                user_message=message,
+                reply=reply,
+                turn_count=turn_count,
+            )
+            saved_artifacts.extend(reply_artifacts)
+            for item in reply_artifacts:
+                _audit_artifact(conn, "auto_save_reply", item)
+            if saved_artifacts and messages:
+                messages[-1]["artifacts"] = saved_artifacts
+                chat_storage.save_conversation(
+                    workspace_root=workspace_root,
+                    conversation_id=conversation_id,
+                    messages=messages,
+                    model=model,
+                    employee_code=employee_code,
+                )
+        except Exception as exc:  # noqa: BLE001 - persistence is best-effort
+            log.warning("chat_storage.save failed: %s", exc)
+    return conversation_id, persisted, turn_count, saved_artifacts
+
+
+class ClientDisconnected(RuntimeError):
+    """Raised when a browser aborts an in-flight SSE chat stream."""
+
+
+def _send_sse_event(handler, event: str, data: dict[str, Any]) -> None:
+    """Write one server-sent event to the chat stream."""
+    payload = (
+        f"event: {event}\n"
+        f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
+    ).encode("utf-8")
+    try:
+        handler.wfile.write(payload)
+        handler.wfile.flush()
+    except (BrokenPipeError, ConnectionError, OSError) as exc:
+        raise ClientDisconnected("chat stream client disconnected") from exc
+
+
 async def handle_chat_message(handler, body: dict[str, Any]) -> None:
     """Handle ``POST /api/chat``.
 
@@ -955,76 +1322,31 @@ async def handle_chat_message(handler, body: dict[str, Any]) -> None:
     success, else ``{"ok": False, "error": str}`` with HTTP 4xx/5xx.
     """
     try:
-        body = body or {}
-        message = (body.get("message") or "").strip()
-        attachments_in = body.get("attachments") or []
-        if not message and not attachments_in:
-            handler._json({"ok": False, "error": "message or attachment required"}, code=400)
-            return
-
-        conn = handler.server.conn  # type: ignore[attr-defined]
-        workspace_root = _workspace_root_for(handler)
-
-        # Inline attachment text so the AI can read files the user pinned.
-        full_message = _augment_with_attachments(workspace_root, message, attachments_in)
-        prompt = _format_history(body.get("history"), full_message)
-
-        # Optional per-employee context: when the chat is "talking about"
-        # someone, prefix the system prompt with their full record + notes.
-        employee_id_raw = body.get("employee_id")
-        employee_code_for_save: str | None = None
         try:
-            employee_id = int(employee_id_raw) if employee_id_raw else None
-        except (TypeError, ValueError):
-            employee_id = None
-        system = _build_system_prompt(conn)
-        if employee_id and workspace_root is not None:
-            try:
-                ctx = employee_fs.build_ai_context(conn, workspace_root, employee_id)
-            except Exception as exc:  # noqa: BLE001
-                log.warning("build_ai_context failed: %s", exc)
-                ctx = ""
-            if ctx:
-                system += "\n\n--- Employee context ---\n" + ctx
-            row = conn.execute(
-                "SELECT employee_code FROM employee WHERE id = ?", (employee_id,),
-            ).fetchone()
-            if row and row["employee_code"]:
-                employee_code_for_save = str(row["employee_code"]).strip() or None
-        tool = _build_query_tool(conn)
-        # Build the candidate tool list — the agent is a full-capability
-        # sandboxed agent by default. ``filter_tools`` drops every
-        # network-touching tool only when the user has explicitly turned
-        # AI_LOCAL_ONLY back on; it's a no-op in the default config.
-        tools: list = [
-            tool,
-            *_build_imported_table_tools(conn),
-            *_build_workspace_fs_tools(workspace_root, conn),
-            *_build_composio_action_tools(conn),
-            *ai_tools.builtin_tools(),
-        ]
-        if workspace_root is not None:
-            try:
-                tools.extend(recipes_ui.build_recipe_tools(conn, workspace_root))
-            except Exception as exc:  # noqa: BLE001
-                log.warning("recipes_ui.build_recipe_tools failed: %s", exc)
-        tools = sandbox.filter_tools(tools, conn)
-        model_override = (body.get("model") or "").strip() or None
-        model_to_check = model_override or branding.ai_model(conn)
-        model_error = _model_override_error(conn, model_to_check)
-        if model_error:
-            handler._json({"ok": False, "error": model_error}, code=400)
+            ctx = _prepare_chat_run(handler, body)
+        except ValueError as exc:
+            handler._json({"ok": False, "error": str(exc)}, code=400)
             return
 
         try:
             # Belt-and-braces: even after filter_tools, wrap the agent run
             # in network_disabled_if(conn) so any leftover HTTP call from
             # within a tool raises NetworkBlocked instead of leaking data.
-            with sandbox.network_disabled_if(conn):
+            with sandbox.network_disabled_if(ctx["conn"]):
                 reply = await ai.run_agent(
-                    prompt, conn=conn, system=system, tools=tools,
-                    model=model_override,
+                    ctx["prompt"], conn=ctx["conn"], system=ctx["system"],
+                    tools=ctx["tools"], model=ctx["model"],
                 )
+            if _is_retryable_provider_reply(reply):
+                handler._json({
+                    "ok": False,
+                    "error": (
+                        "UpfynAI is temporarily busy. Retry the same message "
+                        "in a few seconds."
+                    ),
+                    "retryable": True,
+                }, code=503)
+                return
         except sandbox.NetworkBlocked as exc:
             handler._json({"ok": False, "error": str(exc)}, code=403)
             return
@@ -1032,36 +1354,121 @@ async def handle_chat_message(handler, body: dict[str, Any]) -> None:
             handler._json({"ok": False, "error": str(exc)}, code=502)
             return
 
-        # Persist the turn to disk if we know the workspace root.
-        conversation_id = (body.get("conversation_id") or "").strip()
-        if workspace_root:
-            try:
-                if not conversation_id:
-                    conversation_id = chat_storage.new_conversation_id(message)
-                # Reload prior messages so we append rather than overwrite.
-                existing = chat_storage.load_conversation(
-                    workspace_root=workspace_root,
-                    conversation_id=conversation_id,
-                ) or {}
-                messages = list(existing.get("messages") or body.get("history") or [])
-                messages.append({
-                    "role": "user", "content": message, "attachments": attachments_in,
-                })
-                messages.append({"role": "assistant", "content": reply})
-                chat_storage.save_conversation(
-                    workspace_root=workspace_root,
-                    conversation_id=conversation_id,
-                    messages=messages,
-                    model=model_override,
-                    employee_code=employee_code_for_save,
-                )
-            except Exception as exc:  # noqa: BLE001 - persistence is best-effort
-                log.warning("chat_storage.save failed: %s", exc)
+        conversation_id, persisted, turn_count, saved_artifacts = _persist_chat_turn(
+            conn=ctx["conn"],
+            workspace_root=ctx["workspace_root"],
+            conversation_id=ctx["conversation_id"],
+            message=ctx["message"],
+            attachments=ctx["attachments"],
+            history=ctx["history"],
+            reply=reply,
+            model=ctx["model"],
+            employee_code=ctx["employee_code"],
+            tool_artifacts=ctx.get("tool_artifacts") or [],
+        )
 
-        handler._json({"ok": True, "reply": reply, "conversation_id": conversation_id})
+        handler._json({
+            "ok": True,
+            "reply": reply,
+            "conversation_id": conversation_id,
+            "persisted": persisted,
+            "turns": turn_count,
+            "artifacts": saved_artifacts,
+            "employee_code": ctx["employee_code"] or "",
+        })
+        return
     except Exception as exc:
         log.error("handle_chat_message failed: %s\n%s", exc, traceback.format_exc())
         handler._json({"ok": False, "error": ai.friendly_error(exc)}, code=500)
+
+
+async def handle_chat_stream(handler, body: dict[str, Any]) -> None:
+    """Handle ``POST /api/chat/stream`` as server-sent text deltas."""
+    try:
+        try:
+            ctx = _prepare_chat_run(handler, body)
+        except ValueError as exc:
+            handler._json({"ok": False, "error": str(exc)}, code=400)
+            return
+
+        handler.send_response(200)
+        handler.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        handler.send_header("Cache-Control", "no-store")
+        handler.send_header("Connection", "close")
+        handler.send_header("X-Accel-Buffering", "no")
+        handler.end_headers()
+        handler.close_connection = True
+
+        _send_sse_event(handler, "meta", {
+            "ok": True,
+            "stream": True,
+            "conversation_id": ctx["conversation_id"],
+            "employee_code": ctx["employee_code"] or "",
+        })
+
+        chunks: list[str] = []
+        try:
+            # Keep the same sandbox guard as the JSON endpoint while letting
+            # pydantic-ai stream the model's text deltas to the browser.
+            with sandbox.network_disabled_if(ctx["conn"]):
+                async for chunk in ai.stream_agent(
+                    ctx["prompt"], conn=ctx["conn"], system=ctx["system"],
+                    tools=ctx["tools"], model=ctx["model"],
+                ):
+                    chunks.append(chunk)
+                    _send_sse_event(handler, "delta", {"text": chunk})
+
+            reply = "".join(chunks).strip()
+            if _is_retryable_provider_reply(reply):
+                _send_sse_event(handler, "error", {
+                    "ok": False,
+                    "error": (
+                        "UpfynAI is temporarily busy. Retry the same message "
+                        "in a few seconds."
+                    ),
+                    "retryable": True,
+                })
+                return
+
+            conversation_id, persisted, turn_count, saved_artifacts = _persist_chat_turn(
+                conn=ctx["conn"],
+                workspace_root=ctx["workspace_root"],
+                conversation_id=ctx["conversation_id"],
+                message=ctx["message"],
+                attachments=ctx["attachments"],
+                history=ctx["history"],
+                reply=reply,
+                model=ctx["model"],
+                employee_code=ctx["employee_code"],
+                tool_artifacts=ctx.get("tool_artifacts") or [],
+            )
+            _send_sse_event(handler, "done", {
+                "ok": True,
+                "reply": reply,
+                "conversation_id": conversation_id,
+                "persisted": persisted,
+                "turns": turn_count,
+                "artifacts": saved_artifacts,
+                "employee_code": ctx["employee_code"] or "",
+            })
+        except sandbox.NetworkBlocked as exc:
+            _send_sse_event(handler, "error", {"ok": False, "error": str(exc)})
+        except RuntimeError as exc:
+            _send_sse_event(handler, "error", {"ok": False, "error": str(exc)})
+        except ClientDisconnected:
+            log.info("chat stream stopped by browser")
+        except Exception as exc:  # noqa: BLE001
+            log.error("handle_chat_stream failed: %s\n%s", exc, traceback.format_exc())
+            _send_sse_event(
+                handler, "error",
+                {"ok": False, "error": ai.friendly_error(exc)},
+            )
+    except Exception as exc:  # noqa: BLE001
+        log.error("handle_chat_stream setup failed: %s\n%s", exc, traceback.format_exc())
+        try:
+            handler._json({"ok": False, "error": ai.friendly_error(exc)}, code=500)
+        except Exception:
+            pass
 
 
 # ---------------------------------------------------------------------------
@@ -1172,6 +1579,15 @@ _CHAT_BODY = """
   gap:12px;padding-bottom:12px;border-bottom:1px solid var(--border)}
 .chat-head h1{margin:0;font-size:20px;font-weight:600;letter-spacing:-0.01em}
 .chat-head .chat-sub{color:var(--dim);font-size:12.5px;margin-top:2px}
+.chat-status{margin-top:8px;display:inline-flex;align-items:center;gap:6px;
+  padding:4px 9px;border-radius:999px;background:var(--row-hover);
+  color:var(--dim);font-size:11.5px;border:1px solid var(--border)}
+.chat-status.ok{background:rgba(16,185,129,0.10);color:#047857;border-color:rgba(16,185,129,0.20)}
+.chat-status.warn{background:rgba(245,158,11,0.12);color:#92400e;border-color:rgba(245,158,11,0.24)}
+.chat-status.error{background:rgba(239,68,68,0.10);color:#b91c1c;border-color:rgba(239,68,68,0.22)}
+[data-theme="dark"] .chat-status.ok{color:#34d399}
+[data-theme="dark"] .chat-status.warn{color:#fbbf24}
+[data-theme="dark"] .chat-status.error{color:#fca5a5}
 .chat-head .head-controls{display:flex;gap:8px;align-items:center}
 .chat-head select{padding:6px 10px;background:var(--panel);color:var(--text);
   border:1px solid var(--border);border-radius:6px;font-size:12px;max-width:240px}
@@ -1194,6 +1610,10 @@ _CHAT_BODY = """
 .msg .attachments{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
 .msg .attachments .chip{font-size:11px;padding:2px 8px;border-radius:10px;
   background:var(--bg);border:1px solid var(--border);color:var(--dim)}
+.saved-artifacts{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+.saved-artifacts button{border:1px solid var(--border);background:var(--panel);
+  color:var(--dim);border-radius:999px;padding:5px 10px;font-size:12px;cursor:pointer}
+.saved-artifacts button:hover{color:var(--text);border-color:var(--accent)}
 .chat-input{display:flex;gap:10px;align-items:flex-end;background:var(--panel);
   border:1px solid var(--border);border-radius:8px;padding:10px}
 .chat-input textarea{flex:1;min-height:46px;max-height:180px;resize:vertical;
@@ -1217,6 +1637,95 @@ _CHAT_BODY = """
 .free-badge{font-size:9px;background:color-mix(in srgb,var(--green) 25%,transparent);
   color:var(--green);padding:1px 5px;border-radius:6px;margin-left:6px;
   text-transform:uppercase;letter-spacing:0.4px}
+
+/* Three-pane chat workspace: conversations, chat, artifacts. */
+.chat-shell{grid-template-columns:minmax(280px,324px) minmax(520px,1fr) minmax(320px,380px);
+  gap:18px;height:calc(100vh - 118px);max-width:none;width:100%;padding:0}
+.chat-side{border-radius:20px;padding:14px;background:color-mix(in srgb,var(--panel) 92%,transparent);
+  box-shadow:0 18px 50px rgba(15,23,42,0.06);display:flex}
+.chat-side button.new{border-radius:999px;padding:10px 14px}
+.convo-item{border-radius:14px;padding:10px 12px}
+.chat-main{gap:0;min-height:0;width:100%;max-width:none;margin:0;display:flex;flex-direction:column}
+.chat-head{border:0;padding:2px 4px 12px;align-items:flex-start}
+.chat-head h1{font-size:26px;letter-spacing:-0.04em}
+.chat-head .chat-sub{font-size:13px;margin-top:4px}
+.chat-head .head-controls{display:flex}
+.chat-status{margin-top:10px;border-radius:999px}
+#messages{background:transparent;border:0;border-radius:0;padding:18px 6px 26px;
+  gap:22px;scroll-behavior:smooth;min-height:0;flex:1}
+.msg{max-width:760px;width:min(760px,100%);gap:6px}
+.msg.user{align-self:flex-end;align-items:flex-end}
+.msg.assistant,.msg.error,.msg.thinking{align-self:flex-start;align-items:flex-start}
+.msg .who{font-size:11px;color:var(--mute);text-transform:none;letter-spacing:0}
+.msg .bubble{border:0;background:transparent;border-radius:0;padding:0;
+  font-size:15.5px;line-height:1.65;box-shadow:none}
+.msg.user .bubble{background:color-mix(in srgb,var(--accent) 11%,var(--panel));
+  border:1px solid color-mix(in srgb,var(--accent) 22%,var(--border));
+  border-radius:22px;padding:12px 16px;max-width:620px}
+.msg.error .bubble{background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.2);
+  border-radius:18px;padding:12px 14px}
+.msg.thinking .bubble{font-style:normal;color:var(--mute)}
+.chat-input{position:relative;left:auto;bottom:auto;transform:none;
+  width:100%;display:flex;flex-direction:column;gap:8px;
+  align-items:stretch;background:color-mix(in srgb,var(--panel) 96%,transparent);
+  border:1px solid color-mix(in srgb,var(--border) 80%,transparent);
+  border-radius:28px;padding:14px 16px 12px;box-shadow:0 20px 50px rgba(15,23,42,0.11);
+  flex-shrink:0}
+.chat-input textarea{width:100%;min-height:44px;max-height:190px;resize:none;
+  background:transparent;border:0;border-radius:0;padding:4px 2px;font-size:16px;
+  outline:none}
+.composer-tools{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.composer-left,.composer-right{display:flex;align-items:center;gap:10px;min-width:0}
+.composer-btn{height:34px;min-width:34px;border-radius:999px;border:1px solid var(--border);
+  background:transparent;color:var(--dim);cursor:pointer;font-size:13px;padding:0 12px}
+.composer-btn:hover{color:var(--text);border-color:var(--accent)}
+.composer-btn.has-files{color:#047857;border-color:rgba(16,185,129,.35);
+  background:rgba(16,185,129,.08)}
+.composer-model{max-width:240px;border:0;background:transparent;color:var(--dim);
+  font-size:13px;padding:7px 2px}
+.chat-input button.send,.chat-input button.stop{height:36px;min-width:68px;border-radius:999px;padding:0 16px;
+  color:#fff;border:none;font-size:13px;font-weight:700;line-height:1}
+.chat-input button.send{background:#1f2937}
+.chat-input button.stop{display:none;background:#ef4444}
+.chat-input button:disabled{opacity:0.5;cursor:not-allowed}
+.attached-chips{width:100%;margin:0 0 8px}
+#messages > .empty{background:transparent!important;border:0!important;box-shadow:none!important;
+  padding:110px 20px!important;color:var(--dim);font-size:15px}
+.msg.queued{opacity:0.72}
+.msg.queued .who{color:#b45309}
+.msg.queued .bubble{border-style:dashed}
+.artifact-panel{position:relative;top:auto;right:auto;bottom:auto;z-index:1;
+  width:100%;height:100%;display:flex;flex-direction:column;
+  background:color-mix(in srgb,var(--panel) 98%,transparent);
+  border:1px solid var(--border);border-radius:24px;box-shadow:0 28px 80px rgba(15,23,42,0.18);
+  overflow:hidden}
+.artifact-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;
+  padding:16px 18px;border-bottom:1px solid var(--border)}
+.artifact-kicker{font-size:11px;color:var(--mute);text-transform:uppercase;letter-spacing:.6px}
+.artifact-title{font-size:16px;font-weight:700;color:var(--text);margin-top:3px;word-break:break-word}
+.artifact-meta{font-size:12px;color:var(--dim);margin-top:4px;word-break:break-word}
+.artifact-head button{display:none}
+.artifact-list{display:flex;gap:8px;overflow-x:auto;padding:10px 14px;border-bottom:1px solid var(--border)}
+.artifact-list button{white-space:nowrap;border:1px solid var(--border);background:var(--bg);
+  color:var(--dim);border-radius:999px;padding:6px 10px;font-size:12px;cursor:pointer}
+.artifact-list button.active,.artifact-list button:hover{color:var(--text);border-color:var(--accent)}
+.artifact-body{flex:1;min-height:0;background:var(--bg)}
+.artifact-body iframe{width:100%;height:100%;border:0;background:#fff}
+.artifact-text{height:100%;overflow:auto;margin:0;padding:18px;font:12.5px/1.55 'JetBrains Mono','Menlo',monospace;
+  white-space:pre-wrap;color:var(--text)}
+@media (max-width:1180px){
+  .chat-shell{grid-template-columns:minmax(0,1fr);max-width:none}
+  .chat-side{display:none}
+  .artifact-panel{position:fixed;left:12px;right:12px;top:68px;bottom:12px;width:auto;height:auto;z-index:30}
+  .artifact-panel[hidden]{display:none}
+  .artifact-head button{display:inline-flex;align-items:center;justify-content:center}
+}
+@media (max-width:860px){
+  .chat-shell{height:auto;min-height:calc(100vh - 100px);padding:0}
+  .chat-input{width:100%;margin-top:auto}
+  #messages{padding-bottom:24px;min-height:55vh}
+  .msg{width:100%}
+}
 </style>
 <div class="chat-shell">
   <aside class="chat-side">
@@ -1235,24 +1744,48 @@ _CHAT_BODY = """
       <div>
         <h1>AI Assistant</h1>
         <div class="chat-sub" id="chat-sub">Ask about employees, leave, payroll and more.</div>
+        <div class="chat-status" id="chat-status">Ready. Chats save to this laptop.</div>
       </div>
       <div class="head-controls">
-        <select id="model-select" title="Pick which model handles this conversation">
-          <option value="">Default model</option>
-        </select>
-        <button class="icon" type="button" onclick="newConversation()">Clear</button>
+        <button class="icon" type="button" onclick="showArtifactPanel()">Artifacts</button>
+        <button class="icon" type="button" onclick="newConversation()">New chat</button>
       </div>
     </div>
     <div id="messages"><div class="empty">Say hello to get started.</div></div>
     <div id="attached-chips" class="attached-chips" style="display:none"></div>
     <form class="chat-input" onsubmit="sendMessage(event)">
-      <button type="button" class="attach" onclick="document.getElementById('file-input').click()" title="Attach a file">📎</button>
       <input type="file" id="file-input" multiple style="display:none" onchange="onAttach(this.files)">
       <textarea id="chat-input" placeholder="Ask anything... (Shift+Enter for newline)"
         onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendMessage(event);}"></textarea>
-      <button type="submit" class="send" id="send-btn">Send</button>
+      <div class="composer-tools">
+        <div class="composer-left">
+          <button type="button" class="composer-btn" id="attach-btn"
+            onclick="document.getElementById('file-input').click()" title="Attach a file">Attach</button>
+        </div>
+        <div class="composer-right">
+          <select id="model-select" class="composer-model" title="Pick which model handles this conversation">
+            <option value="">Default model</option>
+          </select>
+          <button type="button" class="stop" id="stop-btn" onclick="stopStreaming()" title="Stop the current response">Stop</button>
+          <button type="submit" class="send" id="send-btn" title="Send">Send</button>
+        </div>
+      </div>
     </form>
   </section>
+  <aside class="artifact-panel" id="artifact-panel">
+  <div class="artifact-head">
+    <div>
+      <div class="artifact-kicker">Saved artifact</div>
+      <div class="artifact-title" id="artifact-title">No artifact selected</div>
+      <div class="artifact-meta" id="artifact-meta">AI-created files save to this laptop.</div>
+    </div>
+    <button type="button" onclick="closeArtifactPanel()" title="Close artifact viewer">x</button>
+  </div>
+  <div class="artifact-list" id="artifact-list"></div>
+  <div class="artifact-body" id="artifact-body">
+    <pre class="artifact-text">Select a saved artifact from the chat.</pre>
+  </div>
+</aside>
 </div>
 <script>
 let history = [];
@@ -1260,14 +1793,26 @@ let conversationId = null;
 let attached = [];   // [{id, filename, size}]
 let employeeId = null;
 let employeeCode = '';
+let savedArtifacts = [];
 const msgEl = document.getElementById('messages');
 const inputEl = document.getElementById('chat-input');
 const sendBtn = document.getElementById('send-btn');
+const stopBtn = document.getElementById('stop-btn');
+const attachBtn = document.getElementById('attach-btn');
 const modelSel = document.getElementById('model-select');
 const convoListEl = document.getElementById('convo-list');
 const attachedChipsEl = document.getElementById('attached-chips');
 const empCtxSel = document.getElementById('employee-context');
 const chatSubEl = document.getElementById('chat-sub');
+const chatStatusEl = document.getElementById('chat-status');
+const artifactPanel = document.getElementById('artifact-panel');
+const artifactTitle = document.getElementById('artifact-title');
+const artifactMeta = document.getElementById('artifact-meta');
+const artifactListEl = document.getElementById('artifact-list');
+const artifactBody = document.getElementById('artifact-body');
+let isStreaming = false;
+let currentAbort = null;
+let pendingQueue = [];
 
 function escapeHtml(s) {
   return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({
@@ -1278,6 +1823,23 @@ function escapeHtml(s) {
 function clearEmpty() {
   const e = msgEl.querySelector('.empty');
   if (e) e.remove();
+}
+
+function setStatus(text, kind) {
+  if (!chatStatusEl) return;
+  chatStatusEl.textContent = text;
+  chatStatusEl.className = 'chat-status' + (kind ? ' ' + kind : '');
+}
+
+function updateComposerState() {
+  if (sendBtn) {
+    sendBtn.disabled = false;
+    sendBtn.textContent = isStreaming ? 'Queue' : 'Send';
+    sendBtn.title = isStreaming ? 'Queue this as the next turn' : 'Send';
+  }
+  if (stopBtn) {
+    stopBtn.style.display = isStreaming ? 'inline-flex' : 'none';
+  }
 }
 
 function appendMessage(role, content, opts) {
@@ -1299,7 +1861,7 @@ function appendMessage(role, content, opts) {
     opts.attachments.forEach(a => {
       const chip = document.createElement('span');
       chip.className = 'chip';
-      chip.textContent = '📎 ' + a.filename;
+      chip.textContent = 'Attached: ' + a.filename;
       att.appendChild(chip);
     });
     wrap.appendChild(att);
@@ -1309,11 +1871,107 @@ function appendMessage(role, content, opts) {
   return wrap;
 }
 
+function artifactUrl(item) {
+  return '/workspace/file?path=' + encodeURIComponent(item.rel_path || '');
+}
+
+function rememberArtifacts(items) {
+  (items || []).forEach(item => {
+    if (!item || !item.rel_path) return;
+    if (!savedArtifacts.some(a => a.rel_path === item.rel_path)) {
+      savedArtifacts.unshift(item);
+    }
+  });
+  renderArtifactList();
+}
+
+function renderArtifactList(activePath) {
+  if (!artifactListEl) return;
+  if (!savedArtifacts.length) {
+    artifactListEl.innerHTML = '<span style="color:var(--dim);font-size:12px">No artifacts yet</span>';
+    return;
+  }
+  artifactListEl.innerHTML = '';
+  savedArtifacts.forEach(item => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.textContent = item.filename || item.rel_path;
+    if (activePath && item.rel_path === activePath) btn.classList.add('active');
+    btn.onclick = () => openArtifact(item);
+    artifactListEl.appendChild(btn);
+  });
+}
+
+function appendArtifactChips(messageEl, items) {
+  if (!messageEl || !items || !items.length) return;
+  const box = document.createElement('div');
+  box.className = 'saved-artifacts';
+  items.forEach(item => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.textContent = 'Saved: ' + (item.filename || item.rel_path || 'artifact');
+    btn.title = item.rel_path || '';
+    btn.onclick = () => openArtifact(item);
+    box.appendChild(btn);
+  });
+  messageEl.appendChild(box);
+}
+
+async function openArtifact(item) {
+  if (!item || !item.rel_path || !artifactPanel) return;
+  rememberArtifacts([item]);
+  artifactPanel.hidden = false;
+  artifactTitle.textContent = item.filename || item.rel_path;
+  artifactMeta.textContent = (item.kind || 'artifact') + ' - ' + item.rel_path;
+  renderArtifactList(item.rel_path);
+  const url = artifactUrl(item);
+  const name = (item.filename || item.rel_path || '').toLowerCase();
+  if (/\\.(html?|pdf|png|jpe?g|gif|webp|svg)$/i.test(name)) {
+    artifactBody.innerHTML = '<iframe title="Artifact preview"></iframe>';
+    artifactBody.querySelector('iframe').src = url;
+    return;
+  }
+  artifactBody.innerHTML = '<pre class="artifact-text">Loading...</pre>';
+  try {
+    const r = await fetch(url);
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const text = await r.text();
+    artifactBody.querySelector('.artifact-text').textContent = text;
+  } catch (err) {
+    artifactBody.querySelector('.artifact-text').textContent =
+      'Could not load artifact: ' + (err.message || err);
+  }
+}
+
+function closeArtifactPanel() {
+  if (artifactPanel) artifactPanel.hidden = true;
+}
+
+function showArtifactPanel() {
+  if (!artifactPanel) return;
+  artifactPanel.hidden = false;
+  renderArtifactList();
+}
+
 function newConversation() {
+  if (isStreaming) stopStreaming();
+  pendingQueue = [];
+  savedArtifacts = [];
+  renderArtifactList();
+  if (window.matchMedia && window.matchMedia('(max-width: 860px)').matches) {
+    closeArtifactPanel();
+  } else {
+    showArtifactPanel();
+  }
+  artifactTitle.textContent = 'No artifact selected';
+  artifactMeta.textContent = 'AI-created files save to this laptop.';
+  artifactBody.innerHTML = '<pre class="artifact-text">Artifacts from this chat will appear here.</pre>';
   history = [];
   conversationId = null;
   attached = [];
   renderAttached();
+  updateComposerState();
+  setStatus('Draft. First reply will save the chat on this laptop.', 'warn');
   msgEl.innerHTML = '<div class="empty">New conversation. Say hello to start.</div>';
   refreshConvoList();
 }
@@ -1322,12 +1980,20 @@ function renderAttached() {
   if (!attached.length) {
     attachedChipsEl.style.display = 'none';
     attachedChipsEl.innerHTML = '';
+    if (attachBtn) {
+      attachBtn.textContent = 'Attach';
+      attachBtn.classList.remove('has-files');
+    }
     return;
   }
   attachedChipsEl.style.display = '';
+  if (attachBtn) {
+    attachBtn.textContent = attached.length + ' attached';
+    attachBtn.classList.add('has-files');
+  }
   attachedChipsEl.innerHTML = attached.map((a, i) => (
-    '<span class="chip">📎 ' + escapeHtml(a.filename) +
-    ' <button onclick="removeAttachment(' + i + ')" title="Remove">×</button></span>'
+    '<span class="chip">Attached: ' + escapeHtml(a.filename) +
+    ' <button onclick="removeAttachment(' + i + ')" title="Remove">x</button></span>'
   )).join('');
 }
 
@@ -1338,19 +2004,35 @@ function removeAttachment(idx) {
 
 async function onAttach(fileList) {
   if (!fileList || !fileList.length) return;
+  const previousLabel = attachBtn ? attachBtn.textContent : '';
+  if (attachBtn) {
+    attachBtn.disabled = true;
+    attachBtn.textContent = 'Attaching...';
+  }
   for (const file of fileList) {
     const fd = new FormData();
     fd.append('file', file);
     try {
       const r = await fetch('/api/chat/upload', {method: 'POST', body: fd});
-      const data = await r.json();
+      const data = await r.json().catch(() => ({ok: false, error: 'Bad upload response'}));
       if (!r.ok || !data.ok) throw new Error(data.error || 'upload failed');
-      attached.push({id: data.id, filename: data.filename, size: data.size});
+      attached.push({
+        id: data.id,
+        filename: data.filename,
+        rel_path: data.rel_path || '',
+        size: data.size,
+      });
+      setStatus('Attached ' + data.filename + '. It will be sent with your next message.', 'ok');
     } catch (err) {
       hrkit.toast('Attach failed: ' + (err.message || err), 'error');
+      setStatus('Attach failed: ' + (err.message || err), 'error');
     }
   }
   document.getElementById('file-input').value = '';
+  if (attachBtn) {
+    attachBtn.disabled = false;
+    attachBtn.textContent = previousLabel || 'Attach';
+  }
   renderAttached();
 }
 
@@ -1421,7 +2103,10 @@ async function refreshConvoList() {
     const url = '/api/chat/conversations' + (employeeCode ? '?employee_code=' + encodeURIComponent(employeeCode) : '');
     const r = await fetch(url);
     const data = await r.json();
-    if (!data.ok) return;
+    if (!data.ok) {
+      setStatus('Could not load saved chats: ' + (data.error || 'unknown error'), 'error');
+      return;
+    }
     if (!data.conversations.length) {
       convoListEl.innerHTML = '<div class="empty" style="padding:14px;font-size:12px">No saved chats yet.</div>';
       return;
@@ -1440,17 +2125,25 @@ async function loadConversation(id) {
   try {
     const url = '/api/chat/conversations/' + encodeURIComponent(id) +
                 (employeeCode ? '?employee_code=' + encodeURIComponent(employeeCode) : '');
+    if (isStreaming) stopStreaming();
+    pendingQueue = [];
     const r = await fetch(url);
     const data = await r.json();
     if (!r.ok || !data.ok) { hrkit.toast('Load failed: ' + (data.error || ''), 'error'); return; }
     conversationId = id;
     history = data.messages || [];
+    setStatus('Loaded saved chat: ' + id, 'ok');
     msgEl.innerHTML = '';
     if (!history.length) {
       msgEl.innerHTML = '<div class="empty">(empty conversation)</div>';
     } else {
+      savedArtifacts = [];
       for (const turn of history) {
-        appendMessage(turn.role, turn.content || '', {attachments: turn.attachments || []});
+        const node = appendMessage(turn.role, turn.content || '', {attachments: turn.attachments || []});
+        if (turn.artifacts && turn.artifacts.length) {
+          rememberArtifacts(turn.artifacts);
+          appendArtifactChips(node, turn.artifacts);
+        }
       }
     }
     refreshConvoList();
@@ -1459,15 +2152,91 @@ async function loadConversation(id) {
   }
 }
 
-async function sendMessage(ev) {
-  ev.preventDefault();
-  const text = (inputEl.value || '').trim();
-  if (!text && !attached.length) return;
-  inputEl.value = '';
-  sendBtn.disabled = true;
-  const sentAttachments = attached.slice();
+function parseSseBlock(block) {
+  let eventName = 'message';
+  const dataLines = [];
+  for (const rawLine of block.split(/\\r?\\n/)) {
+    const line = rawLine.trimEnd();
+    if (!line || line.startsWith(':')) continue;
+    if (line.startsWith('event:')) {
+      eventName = line.slice(6).trim() || 'message';
+    } else if (line.startsWith('data:')) {
+      dataLines.push(line.slice(5).trimStart());
+    }
+  }
+  if (!dataLines.length) return null;
+  let data = {};
+  try {
+    data = JSON.parse(dataLines.join('\\n'));
+  } catch (err) {
+    data = {text: dataLines.join('\\n')};
+  }
+  return {eventName, data};
+}
+
+async function readSse(response, onEvent) {
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  while (true) {
+    const {value, done} = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, {stream: true});
+    const blocks = buffer.split(/\\n\\n/);
+    buffer = blocks.pop() || '';
+    for (const block of blocks) {
+      const parsed = parseSseBlock(block);
+      if (parsed) onEvent(parsed.eventName, parsed.data);
+    }
+  }
+  buffer += decoder.decode();
+  const parsed = parseSseBlock(buffer);
+  if (parsed) onEvent(parsed.eventName, parsed.data);
+}
+
+function stopStreaming() {
+  if (!isStreaming || !currentAbort) return;
+  currentAbort.abort();
+  setStatus('Stopping current response...', 'warn');
+}
+
+function queueTurn(text, sentAttachments) {
+  const queued = appendMessage(
+    'user',
+    text || '(attachment only)',
+    {attachments: sentAttachments, cls: 'queued', who: 'Queued'}
+  );
+  pendingQueue.push({text, attachments: sentAttachments, queued});
+  setStatus(
+    'Queued ' + pendingQueue.length + ' message' + (pendingQueue.length === 1 ? '' : 's') + ' for the next turn.',
+    'warn'
+  );
+}
+
+function runNextQueuedTurn() {
+  if (isStreaming || !pendingQueue.length) return;
+  const next = pendingQueue.shift();
+  if (next.queued) {
+    next.queued.remove();
+  }
+  setTimeout(() => runChatTurn(next.text, next.attachments), 0);
+}
+
+async function runChatTurn(text, sentAttachments) {
+  isStreaming = true;
+  currentAbort = new AbortController();
+  updateComposerState();
+  setStatus(
+    pendingQueue.length
+      ? 'Streaming from UpfynAI... ' + pendingQueue.length + ' queued.'
+      : 'Streaming from UpfynAI...',
+    ''
+  );
+
   appendMessage('user', text || '(attachment only)', {attachments: sentAttachments});
-  const thinking = appendMessage('assistant', 'Thinking...', {cls: 'thinking'});
+  const assistant = appendMessage('assistant', 'Thinking...', {cls: 'thinking'});
+  const assistantBubble = assistant.querySelector('.bubble');
+  const assistantWho = assistant.querySelector('.who');
   const payload = {
     message: text,
     history: history.slice(),
@@ -1476,37 +2245,108 @@ async function sendMessage(ev) {
     conversation_id: conversationId,
     employee_id: employeeId,
   };
+  let streamedText = '';
+  let completed = false;
+  let streamErrored = false;
+  let stopped = false;
   try {
-    const r = await fetch('/api/chat', {
+    const r = await fetch('/api/chat/stream', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(payload),
+      signal: currentAbort.signal,
     });
-    const data = await r.json().catch(() => ({ok: false, error: 'Bad JSON response'}));
-    thinking.remove();
-    if (r.ok && data.ok) {
-      appendMessage('assistant', data.reply || '(no reply)');
-      history.push({role: 'user', content: text, attachments: sentAttachments});
-      history.push({role: 'assistant', content: data.reply || ''});
-      if (data.conversation_id) conversationId = data.conversation_id;
-      attached = [];
-      renderAttached();
-      refreshConvoList();
-    } else {
-      appendMessage('assistant', data.error || ('HTTP ' + r.status), {cls: 'error', who: 'Error'});
+    if (!r.ok || !r.body) {
+      const data = await r.json().catch(() => ({ok: false, error: 'HTTP ' + r.status}));
+      throw new Error(data.error || ('HTTP ' + r.status));
+    }
+
+    await readSse(r, (eventName, data) => {
+      if (eventName === 'delta') {
+        const chunk = data.text || '';
+        if (!chunk) return;
+        streamedText += chunk;
+        assistant.classList.remove('thinking');
+        assistantBubble.textContent = streamedText;
+        msgEl.scrollTop = msgEl.scrollHeight;
+        return;
+      }
+      if (eventName === 'error') {
+        streamErrored = true;
+        assistant.classList.remove('thinking');
+        assistant.classList.add('error');
+        assistantWho.textContent = data.retryable ? 'Retryable error' : 'Error';
+        assistantBubble.textContent = data.retryable
+          ? ((data.error || 'Provider busy') + '\\n\\nRetry the same message; it was not saved as a finished turn.')
+          : (data.error || 'Stream failed');
+        setStatus(data.retryable ? 'Provider busy. Message not saved; retry when ready.' : assistantBubble.textContent, 'error');
+        return;
+      }
+      if (eventName === 'done') {
+        completed = true;
+        assistant.classList.remove('thinking');
+        const finalText = data.reply || streamedText || '(no reply)';
+        assistantBubble.textContent = finalText;
+        if (data.artifacts && data.artifacts.length) {
+          rememberArtifacts(data.artifacts);
+          appendArtifactChips(assistant, data.artifacts);
+          openArtifact(data.artifacts[0]);
+        }
+        history.push({role: 'user', content: text, attachments: sentAttachments});
+        history.push({role: 'assistant', content: finalText, artifacts: data.artifacts || []});
+        if (data.conversation_id) conversationId = data.conversation_id;
+        setStatus(
+          data.persisted
+            ? ('Saved locally as ' + conversationId)
+            : 'Reply received, but this workspace could not save the chat.',
+          data.persisted ? 'ok' : 'warn'
+        );
+        refreshConvoList();
+      }
+    });
+    if (!completed && !streamErrored) {
+      throw new Error('Stream ended before the chat was saved.');
     }
   } catch (err) {
-    thinking.remove();
-    appendMessage('assistant', 'Network error: ' + err, {cls: 'error', who: 'Error'});
+    stopped = err && err.name === 'AbortError';
+    assistant.classList.remove('thinking');
+    assistant.classList.add(stopped ? 'queued' : 'error');
+    assistantWho.textContent = stopped ? 'Stopped' : 'Error';
+    assistantBubble.textContent = stopped
+      ? ((streamedText || 'Response stopped.') + '\\n\\nStopped by you. This partial reply was not saved.')
+      : ('Network error: ' + (err.message || err));
+    setStatus(
+      stopped ? 'Stopped. Partial reply was not saved.' : 'Network error. Message was not saved.',
+      stopped ? 'warn' : 'error'
+    );
   } finally {
-    sendBtn.disabled = false;
+    isStreaming = false;
+    currentAbort = null;
+    updateComposerState();
     inputEl.focus();
+    runNextQueuedTurn();
   }
+}
+
+async function sendMessage(ev) {
+  ev.preventDefault();
+  const text = (inputEl.value || '').trim();
+  if (!text && !attached.length) return;
+  const sentAttachments = attached.slice();
+  inputEl.value = '';
+  attached = [];
+  renderAttached();
+  if (isStreaming) {
+    queueTurn(text, sentAttachments);
+    return;
+  }
+  await runChatTurn(text, sentAttachments);
 }
 
 loadEmployees();
 loadModels();
 refreshConvoList();
+updateComposerState();
 inputEl.focus();
 </script>
 """

@@ -4,6 +4,24 @@ All notable changes to HR-Kit are documented here. Format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.2.0] - 2026-04-30
+
+### Added
+- Full-width, full-height HR Desk shell with aligned sidebar, topbar, content
+  surface, and responsive viewport behavior across Recipes, AI Chat, and module
+  detail pages.
+- Streaming AI Chat experience with token-by-token responses, stop control,
+  queued follow-up messages, local conversation persistence, and retry-aware
+  provider status.
+- Right-side AI artifact viewer with automatic local saving for generated
+  reports, HTML, email drafts, PDFs, and web/search notes.
+- Functional chat attachments, workspace document upload previews, file viewer
+  actions, local folder creation, open-file/open-folder controls, and richer
+  document detail companion panels.
+- Tool-level AI sandbox execution guard so local-only mode allows the provider
+  request while blocking hidden outbound network calls from model-triggered
+  tools and recipes.
+
 ## [1.1.1] - 2026-04-29
 
 ### Added

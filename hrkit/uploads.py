@@ -301,7 +301,7 @@ def handle_document_upload(handler) -> None:
         handler._json({"ok": False, "error": "no file in upload"}, code=400)
         return
     upload = files[0]
-    filename = upload.get("filename") or "file"
+    filename = fields.get("filename", "").strip() or upload.get("filename") or "file"
     data = upload.get("data") or b""
     try:
         rel_path = save_uploaded_file(
@@ -348,23 +348,18 @@ def _mime_for(name: str) -> str:
     return _MIME.get(Path(name).suffix.lower(), "application/octet-stream")
 
 
-def serve_uploaded_file(handler, document_id: int) -> None:
-    """GET /api/m/document/<id>/download — stream the stored upload."""
+def resolve_uploaded_file(handler, document_id: int) -> tuple[Path, str]:
+    """Return the safe on-disk file path and filename for a document row."""
     conn = _conn_for(handler)
     row = conn.execute(
         "SELECT file_path, filename FROM document WHERE id = ?",
         (int(document_id),),
     ).fetchone()
     if not row:
-        handler._send(404, b"document not found", "text/plain; charset=utf-8")
-        return
+        raise FileNotFoundError("document not found")
     file_path = row["file_path"] if hasattr(row, "keys") else row[0]
     filename = row["filename"] if hasattr(row, "keys") else row[1]
-    try:
-        workspace_root = _workspace_root_for(handler)
-    except RuntimeError as exc:
-        handler._send(500, str(exc).encode("utf-8"), "text/plain; charset=utf-8")
-        return
+    workspace_root = _workspace_root_for(handler)
     target = (workspace_root / file_path).resolve()
     from .config import META_DIR
     from . import employee_fs
@@ -379,10 +374,24 @@ def serve_uploaded_file(handler, document_id: int) -> None:
         except ValueError:
             continue
     if not allowed:
-        handler._send(403, b"forbidden", "text/plain; charset=utf-8")
-        return
+        raise PermissionError("forbidden")
     if not target.exists() or not target.is_file():
-        handler._send(404, b"file missing on disk", "text/plain; charset=utf-8")
+        raise FileNotFoundError("file missing on disk")
+    return target, filename or target.name
+
+
+def serve_uploaded_file(handler, document_id: int, *, inline: bool = False) -> None:
+    """GET /api/m/document/<id>/download|view — stream the stored upload."""
+    try:
+        target, filename = resolve_uploaded_file(handler, document_id)
+    except FileNotFoundError as exc:
+        handler._send(404, str(exc).encode("utf-8"), "text/plain; charset=utf-8")
+        return
+    except PermissionError as exc:
+        handler._send(403, str(exc).encode("utf-8"), "text/plain; charset=utf-8")
+        return
+    except RuntimeError as exc:
+        handler._send(500, str(exc).encode("utf-8"), "text/plain; charset=utf-8")
         return
     try:
         data = target.read_bytes()
@@ -391,12 +400,13 @@ def serve_uploaded_file(handler, document_id: int) -> None:
                       "text/plain; charset=utf-8")
         return
     safe_disp = quote(filename or target.name)
+    disposition = "inline" if inline else "attachment"
     handler.send_response(200)
     handler.send_header("Content-Type", _mime_for(filename or target.name))
     handler.send_header("Content-Length", str(len(data)))
     handler.send_header(
         "Content-Disposition",
-        f"attachment; filename*=UTF-8''{safe_disp}",
+        f"{disposition}; filename*=UTF-8''{safe_disp}",
     )
     handler.send_header("Cache-Control", "private, max-age=60")
     handler.end_headers()
@@ -410,6 +420,7 @@ __all__ = [
     "MAX_UPLOAD_BYTES",
     "parse_multipart",
     "save_uploaded_file",
+    "resolve_uploaded_file",
     "handle_document_upload",
     "serve_uploaded_file",
     "save_chat_attachment",

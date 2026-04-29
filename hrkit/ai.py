@@ -8,6 +8,7 @@ resolution stays consistent (env -> SQLite -> default).
 
 Public surface:
     async run_agent(prompt, *, conn, system="", tools=None, model=None) -> str
+    async stream_agent(prompt, *, conn, system="", tools=None, model=None)
     chat_complete(messages, *, conn, model=None) -> str
     health_check(conn) -> dict
 """
@@ -18,8 +19,10 @@ import json
 import logging
 import urllib.error
 import urllib.request
+from collections.abc import AsyncIterator
 from typing import Any
 
+from hrkit import sandbox
 from hrkit.branding import (
     ai_api_key,
     ai_base_url,
@@ -230,8 +233,9 @@ async def run_agent(
     provider, base_url, api_key, model_name = _resolve(conn, model)
     _require_key(api_key, provider)
 
-    # Honor the user's per-tool toggles set on /integrations.
-    effective_tools = filter_disabled_tools(tools, conn)
+    # Honor the user's per-tool toggles set on /integrations, then guard each
+    # remaining tool body when AI_LOCAL_ONLY is enabled.
+    effective_tools = sandbox.guard_tools(filter_disabled_tools(tools, conn), conn)
 
     agent = _build_agent(
         base_url=base_url,
@@ -259,6 +263,48 @@ async def run_agent(
     if text is None:
         text = str(result)
     return str(text)
+
+
+async def stream_agent(
+    prompt: str,
+    *,
+    conn,
+    system: str = "",
+    tools: list | None = None,
+    model: str | None = None,
+) -> AsyncIterator[str]:
+    """Stream one agent turn as text deltas.
+
+    This uses pydantic-ai's streaming run path, so the browser receives the
+    provider's partial text as it arrives while still keeping HR tools enabled.
+    """
+    provider, base_url, api_key, model_name = _resolve(conn, model)
+    _require_key(api_key, provider)
+
+    # Honor the user's per-tool toggles set on /integrations, then guard each
+    # remaining tool body when AI_LOCAL_ONLY is enabled. The provider request
+    # itself still needs network access for UpfynAI/OpenAI.
+    effective_tools = sandbox.guard_tools(filter_disabled_tools(tools, conn), conn)
+
+    agent = _build_agent(
+        base_url=base_url,
+        api_key=api_key,
+        model=model_name,
+        system=system,
+        tools=effective_tools,
+    )
+
+    log.debug("stream_agent: provider=%s model=%s tools=%d (filtered from %d)",
+              provider, model_name, len(effective_tools), len(tools or []))
+    try:
+        async with agent.run_stream(prompt) as result:
+            async for chunk in result.stream_text(delta=True, debounce_by=None):
+                if chunk:
+                    yield str(chunk)
+    except Exception as exc:
+        # Re-raise with the same friendly provider wording as run_agent.
+        nice = friendly_error(exc)
+        raise RuntimeError(nice) from exc
 
 
 def chat_complete(

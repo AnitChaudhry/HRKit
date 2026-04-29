@@ -38,6 +38,8 @@ not a malicious operator who already controls the workspace.
 from __future__ import annotations
 
 import contextlib
+import functools
+import inspect
 import logging
 import socket
 import threading
@@ -142,6 +144,54 @@ def filter_tools(tools: Iterable[Any] | None, conn) -> list[Any]:
             continue
         kept.append(tool)
     return kept
+
+
+def guard_tool_execution(tool: Any, conn) -> Any:
+    """Wrap one callable tool so its body runs under the sandbox guard.
+
+    We intentionally do **not** wrap the whole LLM request. Cloud providers
+    such as UpfynAI/OpenAI need outbound network access so the model can run.
+    The risk boundary is the model-triggered tool call: local recipes and
+    workspace helpers should not be able to make surprise outbound requests
+    when ``AI_LOCAL_ONLY`` is enabled. This wrapper preserves the original
+    callable signature so pydantic-ai still builds the correct tool schema.
+    """
+    if not callable(tool):
+        return tool
+    if getattr(tool, "__hrkit_sandbox_guarded__", False):
+        return tool
+
+    signature = inspect.signature(tool)
+
+    if inspect.iscoroutinefunction(tool):
+        @functools.wraps(tool)
+        async def async_guarded(*args, **kwargs):
+            with network_disabled_if(conn):
+                return await tool(*args, **kwargs)
+
+        wrapped = async_guarded
+    else:
+        @functools.wraps(tool)
+        def guarded(*args, **kwargs):
+            with network_disabled_if(conn):
+                return tool(*args, **kwargs)
+
+        wrapped = guarded
+
+    wrapped.__signature__ = signature  # type: ignore[attr-defined]
+    setattr(wrapped, "__hrkit_sandbox_guarded__", True)
+    for attr in ("network", "name"):
+        if hasattr(tool, attr):
+            try:
+                setattr(wrapped, attr, getattr(tool, attr))
+            except Exception:  # pragma: no cover - defensive only
+                pass
+    return wrapped
+
+
+def guard_tools(tools: Iterable[Any] | None, conn) -> list[Any]:
+    """Apply :func:`guard_tool_execution` to every tool in a list."""
+    return [guard_tool_execution(tool, conn) for tool in list(tools or [])]
 
 
 def assert_path_in_workspace(path: str | Path, workspace_root: str | Path) -> Path:
@@ -276,6 +326,8 @@ __all__ = [
     "is_sandboxed",
     "is_network_tool",
     "filter_tools",
+    "guard_tool_execution",
+    "guard_tools",
     "assert_path_in_workspace",
     "network_disabled",
     "network_disabled_if",

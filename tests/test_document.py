@@ -117,4 +117,27 @@ def test_document_detail_view_includes_download_link(conn):
     code, body = h.html_responses[0]
     assert code == 200
     assert f"/api/m/document/{doc_id}/download" in body
+    assert f"/api/m/document/{doc_id}/view" in body
+    assert f"openDocumentFile({doc_id})" in body
+    assert f"openDocumentFolder({doc_id})" in body
+    assert "'open-folder'" in body
+    assert "File viewer" in body
+    assert "Open viewer" in body
     assert "Download" in body
+
+
+def test_document_list_upload_redirects_to_viewer(conn):
+    mod = importlib.import_module("hrkit.modules.document")
+    emp_id = conn.execute(
+        "INSERT INTO employee (employee_code, full_name, email) VALUES (?, ?, ?)",
+        ("EMP-LISTDOC", "List Doc", "listdoc@example.com"),
+    ).lastrowid
+    conn.commit()
+    h = _FakeHandler(conn)
+    mod.list_view(h)
+    code, body = h.html_responses[0]
+
+    assert code == 200
+    assert 'type="file" required onchange="docFileChosen(this)"' in body
+    assert "No file selected yet." in body
+    assert "location.href = '/m/document/' + data.document_id" in body

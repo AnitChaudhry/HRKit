@@ -920,19 +920,20 @@ MODULE_CSS = r"""
   --row-hover:rgba(255,255,255,0.04);
 }
 *{box-sizing:border-box}
-html,body{margin:0;background:var(--bg);color:var(--text);
+html,body{margin:0;width:100%;min-width:0;min-height:100%;background:var(--bg);color:var(--text);
   font-family:'Inter',system-ui,-apple-system,sans-serif;font-size:14px;
   -webkit-font-smoothing:antialiased}
 a{color:inherit}
 
 /* ---- Shell: sidebar + main column with topbar ---- */
-.app-shell{display:flex;min-height:100vh}
+.app-shell{display:block;min-height:100vh;min-height:100dvh;width:100vw;min-width:0}
 .app-sidebar{width:var(--sidebar-w);background:var(--panel);
   border-right:1px solid var(--border);
-  display:flex;flex-direction:column;position:sticky;top:0;height:100vh;
+  display:flex;flex-direction:column;position:fixed;left:0;top:0;bottom:0;
+  height:100vh;height:100dvh;
   overflow:hidden}
-.app-sidebar-brand{padding:18px 22px;border-bottom:1px solid var(--border-soft);
-  font-weight:700;font-size:15px;letter-spacing:-0.01em}
+.app-sidebar-brand{height:var(--topbar-h);padding:0 22px;border-bottom:1px solid var(--border);
+  font-weight:700;font-size:15px;letter-spacing:-0.01em;display:flex;align-items:center}
 .app-sidebar-brand a{color:inherit;text-decoration:none;display:flex;
   align-items:center;gap:10px}
 .app-sidebar-brand .brand-dot{width:24px;height:24px;border-radius:6px;
@@ -947,9 +948,11 @@ a{color:inherit}
 .app-sidebar-nav a:hover{color:var(--text);background:var(--row-hover)}
 .app-sidebar-nav a.active{color:var(--accent);background:var(--accent-soft)}
 .app-sidebar-nav a .nav-ic{width:16px;text-align:center;font-size:14px;flex-shrink:0}
-.app-main{flex:1;min-width:0;display:flex;flex-direction:column}
+.app-main{position:fixed;left:var(--sidebar-w);right:0;top:0;bottom:0;min-width:0;
+  max-width:none;min-height:100vh;min-height:100dvh;display:flex;flex-direction:column;
+  overflow-y:auto;background:var(--bg)}
 .app-topbar{display:flex;align-items:center;gap:14px;height:var(--topbar-h);
-  padding:0 24px;background:var(--panel);border-bottom:1px solid var(--border);
+  width:100%;padding:0 24px;background:var(--panel);border-bottom:1px solid var(--border);
   position:sticky;top:0;z-index:10}
 .app-topbar-title{font-size:14.5px;font-weight:600;color:var(--text);flex:1;min-width:0;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -960,14 +963,15 @@ a{color:inherit}
 .app-topbar-actions a:hover,.app-topbar-actions button:hover{color:var(--text);
   background:var(--row-hover)}
 .app-topbar-actions a.cta{color:var(--accent);background:var(--accent-soft)}
-.theme-toggle{width:32px;height:32px;display:inline-flex;align-items:center;
-  justify-content:center;font-size:15px;border-radius:6px;color:var(--dim);
-  background:transparent;border:1px solid transparent;cursor:pointer;padding:0}
+.theme-toggle{height:32px;display:inline-flex;align-items:center;
+  justify-content:center;font-size:12.5px;font-weight:500;border-radius:6px;color:var(--dim);
+  background:transparent;border:1px solid transparent;cursor:pointer;padding:0 10px}
 .theme-toggle:hover{background:var(--row-hover);color:var(--text)}
-.app-content{padding:24px 28px;max-width:1400px;margin:0 auto;width:100%}
+.app-content{padding:24px 28px;max-width:none;margin:0;width:100%}
 @media (max-width:760px){
   .app-sidebar{position:fixed;left:-240px;transition:left .2s ease;z-index:20}
   .app-sidebar.open{left:0}
+  .app-main{left:0;right:0;width:auto}
   .app-content{padding:18px}
 }
 
@@ -1236,6 +1240,8 @@ dialog:not(.hrkit-modal) button[type=submit]{background:var(--accent);
   color:#fff;border-color:var(--accent);font-weight:500}
 dialog:not(.hrkit-modal) button[type=submit]:hover{
   background:color-mix(in srgb,var(--accent) 88%,#000 12%)}
+.upload-hint{margin-top:-4px;padding:7px 10px;border-radius:10px;background:var(--row-hover);
+  color:var(--dim);font-size:12px;line-height:1.35}
 """
 
 BRANDED_DIALOGS_JS = r"""
@@ -1487,7 +1493,9 @@ HOME_CSS = r"""
 .fs-head{display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap}
 .fs-path{flex:1;min-width:0;font-family:'JetBrains Mono','Menlo',monospace;font-size:11.5px;
   color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.fs-head button{padding:6px 12px;border-radius:6px;background:var(--accent);color:#fff;
+.fs-head input{min-width:180px;max-width:240px;padding:7px 10px;border-radius:8px;
+  border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:12px}
+.fs-head button{padding:7px 12px;border-radius:8px;background:var(--accent);color:#fff;
   border:none;cursor:pointer;font-size:12px}
 .fs-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:6px}
 .fs-row{display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:6px;
@@ -1497,6 +1505,7 @@ HOME_CSS = r"""
 .fs-icon{width:18px;flex-shrink:0;text-align:center;color:var(--dim);font-size:13px}
 .fs-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .fs-meta{font-size:10.5px;color:var(--mute);font-family:'JetBrains Mono','Menlo',monospace}
+.fs-actions{display:flex;gap:5px;align-items:center}
 .fs-row button.open-btn{padding:3px 9px;font-size:11px;background:transparent;
   color:var(--dim);border:1px solid var(--border);border-radius:4px;cursor:pointer}
 .fs-row button.open-btn:hover{color:var(--text);border-color:var(--accent)}
@@ -1568,11 +1577,11 @@ def render_home_page(*, root_name: str, stats: dict[str, Any],
              "value": int(stats.get("exited_count", 0)),
              "color": "#6b7280"},
         ]
-        donut = render_donut_svg(donut_slices, size=180, thickness=24,
+        donut = render_donut_svg(donut_slices, size=136, thickness=18,
                                   title="Workforce status",
                                   center_label="employees")
         bars = stats.get("hires_by_month") or []
-        bar = render_bar_svg(bars, height=160,
+        bar = render_bar_svg(bars, height=130, min_width=560,
                              title="Hires per month — last 6 months")
         workforce_html = (
             '<div class="home-charts">'
@@ -1618,9 +1627,13 @@ def render_home_page(*, root_name: str, stats: dict[str, Any],
 <style>{HOME_CSS}</style>
 <style>
   /* Two-column charts row for the home page; collapses on narrow screens. */
-  .home-charts{{display:grid;grid-template-columns:minmax(240px,1fr) 2fr;
+  .home-charts{{display:grid;grid-template-columns:minmax(260px,0.85fr) minmax(420px,2fr);
     gap:14px;margin:14px 0 6px}}
   .home-chart-cell{{min-width:0}}
+  .home-charts .chart-card{{height:220px;display:flex;flex-direction:column;
+    justify-content:space-between}}
+  .home-charts .chart-card-head{{margin-bottom:8px}}
+  .home-charts .chart-legend{{margin-top:8px}}
   @media (max-width: 720px){{.home-charts{{grid-template-columns:1fr}}}}
 </style>
 <section class="home-hero">
@@ -1640,12 +1653,17 @@ def render_home_page(*, root_name: str, stats: dict[str, Any],
 <div class="fs-panel">
   <div class="fs-head">
     <span class="fs-path" id="fs-path" title="">/</span>
-    <button onclick="fsOpen('')">Open in Explorer/Finder</button>
+    <input id="fs-folder-name" placeholder="New folder name"
+      onkeydown="if(event.key==='Enter'){{event.preventDefault();fsCreateFolder();}}">
+    <button onclick="fsCreateFolder()">Create folder</button>
+    <button onclick="fsOpenCurrent()">Open in Explorer/Finder</button>
   </div>
   <div class="fs-list" id="fs-list">Loading…</div>
 </div>
 <script>
+let fsCurrentRel = '';
 async function fsLoad(rel) {{
+  fsCurrentRel = rel || '';
   const url = '/api/workspace/tree' + (rel ? ('?path=' + encodeURIComponent(rel)) : '');
   const list = document.getElementById('fs-list');
   list.textContent = 'Loading…';
@@ -1655,6 +1673,8 @@ async function fsLoad(rel) {{
     if (!r.ok || j.ok === false) {{ list.textContent = (j.error || 'Failed'); return; }}
     document.getElementById('fs-path').textContent = j.root + (j.rel ? ('/' + j.rel) : '');
     document.getElementById('fs-path').title = document.getElementById('fs-path').textContent;
+    const folderInput = document.getElementById('fs-folder-name');
+    if (folderInput) folderInput.value = '';
     if (!j.entries.length) {{ list.innerHTML = '<div class=\"empty\" style=\"grid-column:1/-1\">Empty folder.</div>'; return; }}
     const fmtSize = function(n) {{
       if (n < 1024) return n + ' B';
@@ -1668,19 +1688,25 @@ async function fsLoad(rel) {{
     if (j.rel) {{
       const parent = j.rel.split('/').slice(0, -1).join('/');
       rows.push('<div class="fs-row dir" onclick="fsLoad(\\'' + esc(parent) + '\\')">' +
-                '<div class="fs-icon">↰</div>' +
+                '<div class="fs-icon">up</div>' +
                 '<div class="fs-name">..</div></div>');
     }}
     j.entries.forEach(function(e) {{
       const isDir = (e.kind === 'dir');
-      const icon = isDir ? '📁' : '📄';
+      const icon = isDir ? 'DIR' : 'FILE';
       const meta = isDir ? '' : fmtSize(e.size);
       const click = isDir ? ('onclick="fsLoad(\\'' + esc(e.rel_path) + '\\')"') : '';
+      const actions = isDir
+        ? '<button class="open-btn" onclick="event.stopPropagation();fsOpen(\\'' + esc(e.rel_path) + '\\')">Open</button>'
+        : '<span class="fs-actions">' +
+          '<button class="open-btn" onclick="event.stopPropagation();fsView(\\'' + esc(e.rel_path) + '\\')">View</button>' +
+          '<button class="open-btn" onclick="event.stopPropagation();fsOpen(\\'' + esc(e.rel_path) + '\\')">Open</button>' +
+          '</span>';
       rows.push('<div class="fs-row ' + (isDir ? 'dir' : 'file') + '" ' + click + '>' +
                 '<div class="fs-icon">' + icon + '</div>' +
                 '<div class="fs-name" title="' + esc(e.name) + '">' + esc(e.name) + '</div>' +
                 '<span class="fs-meta">' + meta + '</span>' +
-                '<button class="open-btn" onclick="event.stopPropagation();fsOpen(\\'' + esc(e.rel_path) + '\\')">Open</button>' +
+                actions +
                 '</div>');
     }});
     list.innerHTML = rows.join('');
@@ -1688,11 +1714,37 @@ async function fsLoad(rel) {{
 }}
 async function fsOpen(rel) {{
   try {{
-    await fetch('/api/workspace/open', {{
+    const r = await fetch('/api/workspace/open', {{
       method: 'POST', headers: {{'Content-Type': 'application/json'}},
       body: JSON.stringify({{path: rel}}),
     }});
-  }} catch (err) {{ hrkit.toast('Could not open: ' + err, 'error'); }}
+    const j = await r.json().catch(function() {{ return {{ok:false,error:'Open failed'}}; }});
+    if (!r.ok || j.ok === false) throw new Error(j.error || 'Open failed');
+    hrkit.toast('Opening in Explorer/Finder', 'ok');
+  }} catch (err) {{ hrkit.toast('Could not open: ' + err.message, 'error'); }}
+}}
+function fsOpenCurrent() {{
+  fsOpen(fsCurrentRel || '');
+}}
+function fsView(rel) {{
+  window.open('/workspace/file?path=' + encodeURIComponent(rel), '_blank');
+}}
+async function fsCreateFolder() {{
+  const input = document.getElementById('fs-folder-name');
+  const name = (input && input.value ? input.value : '').trim();
+  if (!name) {{ hrkit.toast('Enter a folder name first', 'error'); return; }}
+  try {{
+    const r = await fetch('/api/workspace/folder', {{
+      method: 'POST', headers: {{'Content-Type': 'application/json'}},
+      body: JSON.stringify({{path: fsCurrentRel || '', name: name}}),
+    }});
+    const j = await r.json().catch(function() {{ return {{ok:false,error:'Create failed'}}; }});
+    if (!r.ok || j.ok === false) throw new Error(j.error || 'Create failed');
+    hrkit.toast('Folder created', 'ok');
+    fsLoad(fsCurrentRel || '');
+  }} catch (err) {{
+    hrkit.toast('Could not create folder: ' + err.message, 'error');
+  }}
 }}
 fsLoad('');
 </script>
@@ -1808,7 +1860,7 @@ def render_module_page(*, title: str, nav_active: str, body_html: str) -> str:
       {board_link}
       {_export_csv_button(nav_active, enabled)}
       <button type="button" class="theme-toggle" id="hrkit-theme-toggle"
-              aria-label="Toggle theme" title="Toggle light/dark">o</button>
+              aria-label="Toggle theme" title="Toggle light/dark">Theme</button>
     </div>
   </header>
   <main class="app-content">
@@ -1823,12 +1875,16 @@ def render_module_page(*, title: str, nav_active: str, body_html: str) -> str:
     function current() {{
       return document.documentElement.getAttribute('data-theme') || 'light';
     }}
+    function labelFor(t) {{
+      return t === 'dark' ? 'Light' : 'Dark';
+    }}
     function setTheme(t) {{
       document.documentElement.setAttribute('data-theme', t);
       try {{ localStorage.setItem('hrkit-theme', t); }} catch (e) {{}}
-      btn.textContent = t === 'dark' ? '*' : 'o';
+      btn.textContent = labelFor(t);
+      btn.setAttribute('aria-label', 'Switch to ' + (t === 'dark' ? 'light' : 'dark') + ' theme');
     }}
-    btn.textContent = current() === 'dark' ? '*' : 'o';
+    btn.textContent = labelFor(current());
     btn.addEventListener('click', function() {{
       setTheme(current() === 'dark' ? 'light' : 'dark');
     }});
@@ -1859,6 +1915,25 @@ DETAIL_CSS = r"""
 .detail-actions a.link-back:hover{color:var(--text);border-color:var(--accent)}
 .detail-actions button.danger{background:transparent;color:var(--red);border:1px solid var(--red)}
 .detail-actions button.danger:hover{background:var(--red);color:#fff}
+.app-content:has(.detail-layout){max-width:none;margin:0}
+.detail-layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(320px,380px);
+  gap:22px;align-items:start}
+.detail-main,.detail-side{min-width:0}
+.detail-side{position:sticky;top:calc(var(--topbar-h) + 24px);display:flex;flex-direction:column;gap:16px}
+.detail-side-card{background:var(--panel);border:1px solid var(--border);border-radius:14px;
+  padding:16px;box-shadow:var(--shadow-sm)}
+.detail-side-card h3{margin:0 0 8px;font-size:14px;font-weight:700;color:var(--text)}
+.detail-side-card p{margin:0;color:var(--dim);font-size:13px;line-height:1.55}
+.detail-side-card .side-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.detail-side-card .side-actions a,.detail-side-card .side-actions button{padding:8px 12px;
+  border-radius:999px;border:1px solid var(--border);background:var(--panel-alt);
+  color:var(--text);font:inherit;font-size:12.5px;text-decoration:none;cursor:pointer}
+.detail-side-card .side-actions .primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.detail-side-card .side-kv{display:grid;gap:10px;margin-top:12px}
+.detail-side-card .side-kv div{min-width:0}
+.detail-side-card .side-kv b{display:block;font-size:10.5px;letter-spacing:.55px;text-transform:uppercase;
+  color:var(--mute);margin-bottom:3px}
+.detail-side-card .side-kv span{display:block;font-size:13px;color:var(--text);word-break:break-word}
 .detail-fields{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));
   gap:12px;background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:18px}
 .kv{display:flex;flex-direction:column;gap:4px;min-width:0}
@@ -1888,6 +1963,10 @@ DETAIL_CSS = r"""
 #edit-dlg details{border:1px dashed var(--border);border-radius:8px;padding:10px 12px}
 #edit-dlg summary{cursor:pointer;color:var(--dim);font-size:12px;font-weight:600}
 #edit-dlg .edit-hint{color:var(--dim);font-size:12px;line-height:1.45}
+@media (max-width:1100px){
+  .detail-layout{grid-template-columns:1fr}
+  .detail-side{position:static}
+}
 """
 
 
@@ -1905,6 +1984,7 @@ def render_detail_page(
     field_options: dict[str, list[str]] | None = None,
     exclude_edit_fields: set[str] | None = None,
     edit_field_names: dict[str, str] | None = None,
+    side_html: str = "",
 ) -> str:
     """Render a consistent HTML detail page for any module record.
 
@@ -2187,8 +2267,13 @@ async function deleteRecord(id) {{
     <a href="/m/{_e(nav_active)}" class="link-back">&larr; Back</a>
   </div>
 </div>
-<div class="detail-fields">{''.join(rows) if rows else '<div class="empty">No fields.</div>'}</div>
-{related_html}
+<div class="detail-layout">
+  <div class="detail-main">
+    <div class="detail-fields">{''.join(rows) if rows else '<div class="empty">No fields.</div>'}</div>
+    {related_html}
+  </div>
+  {f'<aside class="detail-side">{side_html}</aside>' if side_html else ''}
+</div>
 {edit_dialog}
 {edit_script}
 """
@@ -2418,20 +2503,26 @@ def render_donut_svg(slices, *, size=160, thickness=22, title="", center_label="
             value = float(s["value"])
             color = s.get("color") or palette[i % len(palette)]
             angle = (value / total) * 2 * _math.pi
-            end = offset + angle
             r_mid = inner + thickness / 2
-            x1 = cx + r_mid * _math.cos(offset)
-            y1 = cy + r_mid * _math.sin(offset)
-            x2 = cx + r_mid * _math.cos(end)
-            y2 = cy + r_mid * _math.sin(end)
-            large_arc = 1 if angle > _math.pi else 0
-            d = (f'M {x1:.2f} {y1:.2f} '
-                 f'A {r_mid:.2f} {r_mid:.2f} 0 '
-                 f'{large_arc} 1 {x2:.2f} {y2:.2f}')
-            paths.append(
-                f'<path d="{d}" fill="none" stroke="{color}" '
-                f'stroke-width="{thickness}" stroke-linecap="butt"/>'
-            )
+            if value >= total:
+                paths.append(
+                    f'<circle cx="{cx}" cy="{cy}" r="{r_mid:.2f}" '
+                    f'fill="none" stroke="{color}" stroke-width="{thickness}"/>'
+                )
+            else:
+                end = offset + angle
+                x1 = cx + r_mid * _math.cos(offset)
+                y1 = cy + r_mid * _math.sin(offset)
+                x2 = cx + r_mid * _math.cos(end)
+                y2 = cy + r_mid * _math.sin(end)
+                large_arc = 1 if angle > _math.pi else 0
+                d = (f'M {x1:.2f} {y1:.2f} '
+                     f'A {r_mid:.2f} {r_mid:.2f} 0 '
+                     f'{large_arc} 1 {x2:.2f} {y2:.2f}')
+                paths.append(
+                    f'<path d="{d}" fill="none" stroke="{color}" '
+                    f'stroke-width="{thickness}" stroke-linecap="butt"/>'
+                )
             pct = (value / total) * 100
             legend_items.append(
                 f'<span class="chart-legend-item">'
@@ -2440,7 +2531,7 @@ def render_donut_svg(slices, *, size=160, thickness=22, title="", center_label="
                 f'<strong style="color:var(--text)">{pct:.0f}%</strong>'
                 f'</span>'
             )
-            offset = end
+            offset += angle
         center = (
             f'<text x="{cx}" y="{cy - 3}" text-anchor="middle" '
             f'style="font:600 18px Inter,sans-serif;fill:var(--text)">{int(total)}</text>'
@@ -2468,7 +2559,7 @@ def render_donut_svg(slices, *, size=160, thickness=22, title="", center_label="
     return f'<div class="chart-card">{head}{body}</div>'
 
 
-def render_bar_svg(bars, *, height=160, title="", y_label=""):
+def render_bar_svg(bars, *, height=160, title="", y_label="", min_width=420):
     """Render a vertical bar chart as inline SVG. ``bars`` is a list of dicts::
 
         {"label": str, "value": float, "color": str (optional)}
@@ -2483,11 +2574,15 @@ def render_bar_svg(bars, *, height=160, title="", y_label=""):
             'No data yet</div></div>'
         )
     max_v = max(float(b.get("value") or 0) for b in bars) or 1.0
-    bar_w = 28
-    gap = 14
-    pad_l, pad_r, pad_t, pad_b = 36, 16, 12, 30
-    w = pad_l + len(bars) * (bar_w + gap) - gap + pad_r
+    pad_l, pad_r, pad_t, pad_b = 42, 22, 14, 34
+    min_width = max(260, int(min_width or 420))
+    # Keep sparse charts from becoming tall vertical slabs when width:100%
+    # scales an extremely narrow SVG into a dashboard card.
+    w = max(min_width, pad_l + len(bars) * 52 + pad_r)
     h = height + pad_t + pad_b
+    plot_w = max(1, w - pad_l - pad_r)
+    slot_w = plot_w / max(1, len(bars))
+    bar_w = min(34, max(12, slot_w * 0.45))
 
     rects: list[str] = []
     labels: list[str] = []
@@ -2504,7 +2599,7 @@ def render_bar_svg(bars, *, height=160, title="", y_label=""):
     for i, b in enumerate(bars):
         v = float(b.get("value") or 0)
         bh = (v / max_v) * height
-        x = pad_l + i * (bar_w + gap)
+        x = pad_l + i * slot_w + (slot_w - bar_w) / 2
         y = pad_t + height - bh
         color = b.get("color") or palette[i % len(palette)]
         rects.append(

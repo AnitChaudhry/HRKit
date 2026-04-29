@@ -1,5 +1,6 @@
 from __future__ import annotations
 import json
+import mimetypes
 import os
 import re
 import subprocess
@@ -309,6 +310,18 @@ def _safe_count(conn: Any, sql: str) -> int:
     return int(row[0] if not hasattr(row, "keys") else row[list(row.keys())[0]])
 
 
+def _last_month_labels(count: int = 6) -> list[str]:
+    now = datetime.now(IST)
+    month_index = (now.year * 12 + now.month - 1) - (count - 1)
+    labels: list[str] = []
+    for offset in range(count):
+        idx = month_index + offset
+        year = idx // 12
+        month = idx % 12 + 1
+        labels.append(f"{year:04d}-{month:02d}")
+    return labels
+
+
 def _collect_home_stats(conn: Any, enabled: list[str]) -> dict[str, Any]:
     """Aggregate per-module counters used by the home page.
 
@@ -342,18 +355,34 @@ def _collect_home_stats(conn: Any, enabled: list[str]) -> dict[str, Any]:
             conn, "SELECT COUNT(*) FROM employee WHERE status='on_leave'")
         stats["exited_count"] = _safe_count(
             conn, "SELECT COUNT(*) FROM employee WHERE status='exited'")
-        # Hires per month for the last 6 months (oldest -> newest).
+        # Hires per month for the last 6 months (oldest -> newest), including
+        # zero months so the chart always has a sane dashboard rhythm.
         try:
+            month_labels = _last_month_labels(6)
+            counts = {label: 0 for label in month_labels}
+            last_idx = (int(month_labels[-1][:4]) * 12
+                        + int(month_labels[-1][5:7]))
+            end_year = last_idx // 12
+            end_month = last_idx % 12 + 1
+            if end_month == 13:
+                end_year += 1
+                end_month = 1
             cur = conn.execute(
                 "SELECT strftime('%Y-%m', hire_date) AS month, COUNT(*) AS n "
                 "FROM employee "
                 "WHERE hire_date <> '' "
-                "  AND hire_date >= date('now','start of month','-5 months') "
-                "GROUP BY month ORDER BY month"
+                "  AND hire_date >= ? "
+                "  AND hire_date < ? "
+                "GROUP BY month ORDER BY month",
+                (f"{month_labels[0]}-01", f"{end_year:04d}-{end_month:02d}-01"),
             )
+            for r in cur.fetchall():
+                month = r["month"]
+                if month in counts:
+                    counts[month] = int(r["n"])
             stats["hires_by_month"] = [
-                {"label": r["month"], "value": int(r["n"])}
-                for r in cur.fetchall()
+                {"label": label, "value": counts[label]}
+                for label in month_labels
             ]
         except Exception:
             stats["hires_by_month"] = []
@@ -494,10 +523,19 @@ class Handler(BaseHTTPRequestHandler):
                 except FileNotFoundError as exc:
                     self._json({"ok": False, "error": str(exc)}, code=404)
                 return
+            if path == "/workspace/file":
+                rel = parse_qs(parsed.query).get("path", [""])[0]
+                try:
+                    self._serve_workspace_file(rel)
+                except FileNotFoundError as exc:
+                    self._send(404, str(exc).encode("utf-8"), "text/plain; charset=utf-8")
+                return
 
-            m = re.match(r"^/api/m/document/(\d+)/download/?$", path)
+            m = re.match(r"^/api/m/document/(\d+)/(download|view)/?$", path)
             if m:
-                uploads.serve_uploaded_file(self, int(m.group(1)))
+                uploads.serve_uploaded_file(
+                    self, int(m.group(1)), inline=(m.group(2) == "view"),
+                )
                 return
 
             # Legacy hiring URLs redirect to the new recruitment module.
@@ -576,8 +614,15 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/workspace/open":
                 self._api_open_workspace()
                 return
+            if path == "/api/workspace/folder":
+                self._api_workspace_create_folder()
+                return
             if path == "/api/open-file":
                 self._api_open_file()
+                return
+            m = re.match(r"^/api/m/document/(\d+)/(open|open-folder)/?$", path)
+            if m:
+                self._api_open_document_file(int(m.group(1)), folder=(m.group(2) == "open-folder"))
                 return
             if path == "/api/create-task":
                 self._api_create_task()
@@ -590,6 +635,10 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if path == "/api/settings/test":
                 settings_ui.handle_test_connection(self, self._read_json())
+                return
+            if path == "/api/chat/stream":
+                import asyncio
+                asyncio.run(chat_mod.handle_chat_stream(self, self._read_json()))
                 return
             if path == "/api/chat":
                 # chat handler is async — run it on the per-thread event loop
@@ -871,6 +920,74 @@ class Handler(BaseHTTPRequestHandler):
             raise FileNotFoundError(f"path not found: {rel or '/'}")
         _open_in_explorer(target if target.is_dir() else target.parent)
         self._json({"ok": True, "opened": str(target)})
+
+    def _serve_workspace_file(self, rel: str) -> None:
+        """GET /workspace/file?path=<rel> — inline preview of a workspace file."""
+        if ROOT is None:
+            raise FileNotFoundError("workspace root is not set")
+        rel = str(rel or "").strip().lstrip("/").lstrip("\\")
+        target = (ROOT / rel).resolve()
+        root_resolved = ROOT.resolve()
+        try:
+            target.relative_to(root_resolved)
+        except ValueError as exc:
+            raise FileNotFoundError(
+                f"path '{rel}' resolves outside the workspace"
+            ) from exc
+        if not target.exists() or not target.is_file():
+            raise FileNotFoundError(f"file not found: {rel}")
+        content_type = mimetypes.guess_type(target.name)[0] or "application/octet-stream"
+        data = target.read_bytes()
+        self.send_response(200)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header(
+            "Content-Disposition",
+            f'inline; filename="{target.name.replace(chr(34), "")}"',
+        )
+        self.end_headers()
+        self.wfile.write(data)
+
+    def _api_open_document_file(self, document_id: int, *, folder: bool = False) -> None:
+        """Open an uploaded document file, or its containing folder, on the OS."""
+        try:
+            target, _filename = uploads.resolve_uploaded_file(self, document_id)
+        except PermissionError as exc:
+            raise ValueError(str(exc)) from exc
+        if folder:
+            _open_in_explorer(target.parent)
+            self._json({"ok": True, "opened": str(target.parent)})
+            return
+        _open_file_os(target)
+        self._json({"ok": True, "opened": str(target)})
+
+    def _api_workspace_create_folder(self) -> None:
+        """POST /api/workspace/folder — create a child folder in the workspace."""
+        body = self._read_json()
+        if ROOT is None:
+            raise FileNotFoundError("workspace root is not set")
+        rel = str(body.get("path") or "").strip().lstrip("/").lstrip("\\")
+        name = _sanitize_name(str(body.get("name") or "").strip())
+        parent = (ROOT / rel).resolve()
+        root_resolved = ROOT.resolve()
+        try:
+            parent.relative_to(root_resolved)
+        except ValueError as exc:
+            raise FileNotFoundError(
+                f"path '{rel}' resolves outside the workspace"
+            ) from exc
+        if not parent.exists() or not parent.is_dir():
+            raise FileNotFoundError(f"directory not found: {rel or '/'}")
+        target = (parent / name).resolve()
+        try:
+            target.relative_to(root_resolved)
+        except ValueError as exc:
+            raise FileNotFoundError("new folder resolves outside the workspace") from exc
+        if target.exists():
+            raise ValueError(f"folder already exists: {name}")
+        target.mkdir(parents=False, exist_ok=False)
+        rel_path = target.relative_to(root_resolved).as_posix()
+        self._json({"ok": True, "name": name, "rel_path": rel_path})
 
     def _api_open_file(self) -> None:
         body = self._read_json()

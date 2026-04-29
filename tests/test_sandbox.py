@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import sqlite3
 import urllib.request
 
@@ -187,3 +188,47 @@ def test_status_summary_reflects_setting(monkeypatch):
     off_conn = _conn_with("0")
     assert "ENABLED" in sandbox.status_summary(on_conn)
     assert "DISABLED" in sandbox.status_summary(off_conn)
+
+
+# ---------------------------------------------------------------------------
+# guard_tool_execution - tool-level sandboxing
+# ---------------------------------------------------------------------------
+def test_guard_tool_execution_preserves_signature_and_blocks_when_sandboxed(monkeypatch):
+    monkeypatch.delenv("AI_LOCAL_ONLY", raising=False)
+    conn = _conn_with("1")
+
+    def local_tool(rel_path: str, limit: int = 10) -> bool:
+        return sandbox._is_blocked_in_this_thread()
+
+    guarded = sandbox.guard_tool_execution(local_tool, conn)
+
+    sig = inspect.signature(guarded)
+    assert list(sig.parameters) == ["rel_path", "limit"]
+    assert sig.parameters["limit"].default == 10
+    assert guarded("notes.txt") is True
+    assert not sandbox._is_blocked_in_this_thread()
+
+
+def test_guard_tool_execution_noop_network_guard_when_unsandboxed(monkeypatch):
+    monkeypatch.setenv("AI_LOCAL_ONLY", "0")
+    conn = _conn_with("0")
+
+    def local_tool() -> bool:
+        return sandbox._is_blocked_in_this_thread()
+
+    guarded = sandbox.guard_tool_execution(local_tool, conn)
+
+    assert guarded() is False
+
+
+def test_guard_tools_wraps_callable_list(monkeypatch):
+    monkeypatch.delenv("AI_LOCAL_ONLY", raising=False)
+    conn = _conn_with("1")
+
+    def local_tool() -> bool:
+        return sandbox._is_blocked_in_this_thread()
+
+    wrapped = sandbox.guard_tools([local_tool, {"name": "dict_tool"}], conn)
+
+    assert wrapped[0]() is True
+    assert wrapped[1] == {"name": "dict_tool"}

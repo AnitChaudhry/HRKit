@@ -51,6 +51,9 @@ def test_employee_detail_view_has_upload_dialog(conn):
     # employee_id is pre-filled so the upload binds to this employee.
     assert f'name="employee_id" value="{emp_id}"' in body
     assert "/api/m/document/upload" in body
+    assert 'type="file" required onchange="docFileChosen(this)"' in body
+    assert "No file selected yet." in body
+    assert "location.href = '/m/document/' + data.document_id" in body
 
 
 def test_employee_list_view_links_to_detail(conn):

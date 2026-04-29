@@ -530,11 +530,16 @@ def detail_view(handler, item_id: int) -> None:
     )
     doc_rows = doc_cur.fetchall()
     docs_table = (
-        "<table><thead><tr><th>Type</th><th>Filename</th><th>Expiry</th></tr></thead><tbody>"
+        "<table><thead><tr><th>Type</th><th>Filename</th><th>Expiry</th><th>Actions</th></tr></thead><tbody>"
         + "".join(
             f"<tr><td>{_esc(d['doc_type'])}</td>"
             f"<td><a href=\"/m/document/{int(d['id'])}\">{_esc(d['filename'])}</a></td>"
-            f"<td>{_esc(d['expiry_date'])}</td></tr>"
+            f"<td>{_esc(d['expiry_date'])}</td>"
+            f"<td style=\"display:flex;gap:8px;flex-wrap:wrap\">"
+            f"<a href=\"/m/document/{int(d['id'])}\">Open</a>"
+            f"<a href=\"/api/m/document/{int(d['id'])}/view\" target=\"_blank\">Viewer</a>"
+            f"<a href=\"/api/m/document/{int(d['id'])}/download\" download>Download</a>"
+            f"</td></tr>"
             for d in doc_rows
         )
         + "</tbody></table>"
@@ -551,7 +556,8 @@ def detail_view(handler, item_id: int) -> None:
   <form onsubmit="submitDocUpload(event)" enctype="multipart/form-data">
     <input type="hidden" name="employee_id" value="{int(item_id)}">
     <label>Document type*<input name="doc_type" required placeholder="e.g. PAN, contract"></label>
-    <label>File*<input name="file" type="file" required></label>
+    <label>File*<input name="file" type="file" required onchange="docFileChosen(this)"></label>
+    <div class="upload-hint" id="doc-file-picked">No file selected yet.</div>
     <label>Expiry date<input name="expiry_date" type="date"></label>
     <label>Notes<textarea name="notes"></textarea></label>
     <menu>
@@ -565,8 +571,23 @@ async function submitDocUpload(ev) {{
   ev.preventDefault();
   const fd = new FormData(ev.target);
   if (fd.get('expiry_date') === '') fd.delete('expiry_date');
+  const submitBtn = ev.target.querySelector('button[type="submit"]');
+  if (submitBtn) {{ submitBtn.disabled = true; submitBtn.textContent = 'Uploading...'; }}
   const r = await fetch('/api/m/document/upload', {{method: 'POST', body: fd}});
-  if (r.ok) location.reload(); else hrkit.toast('Upload failed: ' + await r.text(), 'error');
+  const data = await r.json().catch(() => ({{ok: false, error: 'Bad upload response'}}));
+  if (r.ok && data.ok && data.document_id) {{
+    location.href = '/m/document/' + data.document_id;
+  }} else {{
+    if (submitBtn) {{ submitBtn.disabled = false; submitBtn.textContent = 'Upload'; }}
+    hrkit.toast('Upload failed: ' + (data.error || r.status), 'error');
+  }}
+}}
+function docFileChosen(input) {{
+  const picked = document.getElementById('doc-file-picked');
+  if (!picked) return;
+  picked.textContent = input.files && input.files.length
+    ? ('Selected: ' + input.files[0].name)
+    : 'No file selected yet.';
 }}
 </script>
 """

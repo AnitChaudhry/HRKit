@@ -130,7 +130,14 @@ def _render_list_html(rows: list[dict[str, Any]],
         cells = "".join(f"<td>{_esc(row.get(c))}</td>" for c in LIST_COLUMNS)
         body_rows.append(
             f'<tr data-id="{row["id"]}">{cells}'
-            f'<td><button onclick="deleteRow({row["id"]})">Delete</button></td></tr>'
+            f'<td style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">'
+            f'<a href="/m/document/{int(row["id"])}" '
+            f'style="padding:6px 12px;border:1px solid var(--border);border-radius:6px;'
+            f'color:var(--text);text-decoration:none;font-size:12px">Open</a>'
+            f'<a href="/api/m/document/{int(row["id"])}/view" target="_blank" '
+            f'style="padding:6px 12px;border:1px solid var(--border);border-radius:6px;'
+            f'color:var(--text);text-decoration:none;font-size:12px">Viewer</a>'
+            f'<button onclick="deleteRow({row["id"]})">Delete</button></td></tr>'
         )
     emp_opts = "".join(
         f'<option value="{e["id"]}">{_esc(e["label"])}</option>' for e in employees
@@ -149,7 +156,8 @@ def _render_list_html(rows: list[dict[str, Any]],
   <form onsubmit="submitCreate(event)">
     <label>Employee*<select name="employee_id" required><option value="">--</option>{emp_opts}</select></label>
     <label>Document type*<input name="doc_type" required placeholder="e.g. PAN, contract"></label>
-    <label>File*<input name="file" type="file" required></label>
+    <label>File*<input name="file" type="file" required onchange="docFileChosen(this)"></label>
+    <div class="upload-hint" id="doc-file-picked">No file selected yet.</div>
     <label>Filename<input name="filename" placeholder="defaults to uploaded filename"></label>
     <label>Expiry date<input name="expiry_date" type="date"></label>
     <label>Notes<textarea name="notes"></textarea></label>
@@ -174,14 +182,86 @@ async function submitCreate(ev) {{
     fd.set('filename', fd.get('file').name);
   }}
   if (fd.get('expiry_date') === '') fd.delete('expiry_date');
+  const submitBtn = ev.target.querySelector('button[type="submit"]');
+  if (submitBtn) {{ submitBtn.disabled = true; submitBtn.textContent = 'Uploading...'; }}
   const r = await fetch('/api/m/document/upload', {{method: 'POST', body: fd}});
-  if (r.ok) location.reload(); else hrkit.toast('Save failed: ' + await r.text(), 'error');
+  const data = await r.json().catch(() => ({{ok: false, error: 'Bad upload response'}}));
+  if (r.ok && data.ok && data.document_id) {{
+    location.href = '/m/document/' + data.document_id;
+  }} else {{
+    if (submitBtn) {{ submitBtn.disabled = false; submitBtn.textContent = 'Save'; }}
+    hrkit.toast('Save failed: ' + (data.error || r.status), 'error');
+  }}
+}}
+function docFileChosen(input) {{
+  const picked = document.getElementById('doc-file-picked');
+  if (!picked) return;
+  picked.textContent = input.files && input.files.length
+    ? ('Selected: ' + input.files[0].name)
+    : 'No file selected yet.';
 }}
 async function deleteRow(id) {{
   if (!(await hrkit.confirmDialog('Delete document #' + id + '?'))) return;
   const r = await fetch('/api/m/document/' + id, {{method: 'DELETE'}});
   if (r.ok) location.reload(); else hrkit.toast('Delete failed', 'error');
 }}
+</script>
+"""
+
+
+def _render_viewer_html(row: dict[str, Any], item_id: int) -> str:
+    filename = row.get("filename") or "document"
+    ext = "." + str(filename).rsplit(".", 1)[-1].lower() if "." in str(filename) else ""
+    view_url = f"/api/m/{NAME}/{int(item_id)}/view"
+    download_url = f"/api/m/{NAME}/{int(item_id)}/download"
+    if ext in {".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"}:
+        preview = (
+            f'<img src="{view_url}" alt="{_esc(filename)}" '
+            'style="max-width:100%;max-height:620px;display:block;margin:auto">'
+        )
+    elif ext in {".pdf", ".txt", ".md", ".json", ".csv"}:
+        preview = (
+            f'<iframe src="{view_url}" title="{_esc(filename)}" '
+            'style="width:100%;height:620px;border:0;background:var(--bg);border-radius:12px"></iframe>'
+        )
+    else:
+        preview = (
+            '<div class="empty" style="padding:34px;text-align:center">'
+            'This file type may not preview inside the browser. Use Open file or Download.'
+            '</div>'
+        )
+    return f"""
+<style>
+.doc-viewer-shell{{display:flex;flex-direction:column;gap:14px}}
+.doc-viewer-actions{{display:flex;gap:8px;flex-wrap:wrap;align-items:center}}
+.doc-viewer-actions a,.doc-viewer-actions button{{padding:8px 13px;border-radius:999px;
+  border:1px solid var(--border);background:var(--panel);color:var(--text);
+  text-decoration:none;font-size:12.5px;cursor:pointer}}
+.doc-viewer-actions a.primary{{background:var(--accent);border-color:var(--accent);color:#fff}}
+.doc-preview{{border:1px solid var(--border);border-radius:16px;background:var(--panel-alt);
+  min-height:180px;overflow:hidden;padding:10px}}
+</style>
+<div class="doc-viewer-shell">
+  <div class="doc-viewer-actions">
+    <a class="primary" href="{view_url}" target="_blank">Open viewer</a>
+    <a href="{download_url}" download="{_esc(filename)}">Download</a>
+    <button type="button" onclick="openDocumentFile({int(item_id)})">Open file</button>
+    <button type="button" onclick="openDocumentFolder({int(item_id)})">Open folder</button>
+  </div>
+  <div class="doc-preview">{preview}</div>
+</div>
+<script>
+async function openDocumentAction(id, action) {{
+  const r = await fetch('/api/m/document/' + id + '/' + action, {{method: 'POST'}});
+  const data = await r.json().catch(() => ({{ok:false,error:'Action failed'}}));
+  if (!r.ok || data.ok === false) {{
+    hrkit.toast(data.error || 'Action failed', 'error');
+    return;
+  }}
+  hrkit.toast(action === 'open-folder' ? 'Opening folder' : 'Opening file', 'ok');
+}}
+function openDocumentFile(id) {{ openDocumentAction(id, 'open'); }}
+function openDocumentFolder(id) {{ openDocumentAction(id, 'open-folder'); }}
 </script>
 """
 
@@ -243,25 +323,59 @@ def detail_view(handler, item_id: int) -> None:
         ("Created", row.get("created")),
     ]
 
-    if emp_row:
-        emp_body = (
-            "<table><thead><tr><th>Code</th><th>Name</th>"
-            "<th>Email</th><th>Status</th></tr></thead><tbody>"
-            f"<tr><td>{_esc(emp_row['employee_code'])}</td>"
-            f"<td><a href=\"/m/employee/{int(emp_row['id'])}\">{_esc(emp_row['full_name'])}</a></td>"
-            f"<td>{_esc(emp_row['email'])}</td><td>{_esc(emp_row['status'])}</td></tr>"
-            "</tbody></table>"
-        )
-    else:
-        emp_body = '<div class="empty">No linked employee.</div>'
-
-    related_html = detail_section(title="Employee", body_html=emp_body)
+    related_html = detail_section(
+        title="File viewer",
+        body_html=_render_viewer_html(row, int(item_id)),
+    )
 
     subtitle_bits = [b for b in (row.get("doc_type"), emp_name) if b]
     download_btn = (
+        f'<a href="/api/m/{NAME}/{int(item_id)}/view" target="_blank">Open viewer</a>'
         f'<a href="/api/m/{NAME}/{int(item_id)}/download" '
         f'download="{_esc(row.get("filename") or "")}">Download</a>'
     ) if row.get("file_path") else ""
+    if emp_row:
+        employee_side = f"""
+<div class="detail-side-card">
+  <h3>Employee context</h3>
+  <p>This document is linked to the employee profile below.</p>
+  <div class="side-kv">
+    <div><b>Name</b><span>{_esc(emp_row['full_name'])}</span></div>
+    <div><b>Code</b><span>{_esc(emp_row['employee_code'])}</span></div>
+    <div><b>Email</b><span>{_esc(emp_row['email'])}</span></div>
+    <div><b>Status</b><span>{_esc(emp_row['status'])}</span></div>
+  </div>
+  <div class="side-actions">
+    <a class="primary" href="/m/employee/{int(emp_row['id'])}">Open employee</a>
+  </div>
+</div>
+"""
+    else:
+        employee_side = """
+<div class="detail-side-card">
+  <h3>Employee context</h3>
+  <p>No employee is linked to this document yet.</p>
+</div>
+"""
+    file_path = row.get("file_path") or ""
+    file_side = f"""
+<div class="detail-side-card">
+  <h3>File actions</h3>
+  <p>Open, download, or reveal this document from the local HR workspace.</p>
+  <div class="side-actions">
+    {f'<a class="primary" href="/api/m/{NAME}/{int(item_id)}/view" target="_blank">Open viewer</a>' if file_path else ''}
+    {f'<a href="/api/m/{NAME}/{int(item_id)}/download" download="{_esc(row.get("filename") or "")}">Download</a>' if file_path else ''}
+    {f'<button type="button" onclick="openDocumentFile({int(item_id)})">Open file</button>' if file_path else ''}
+    {f'<button type="button" onclick="openDocumentFolder({int(item_id)})">Open folder</button>' if file_path else ''}
+  </div>
+  <div class="side-kv">
+    <div><b>Filename</b><span>{_esc(row.get("filename") or "")}</span></div>
+    <div><b>Local path</b><span>{_esc(file_path or "No file uploaded")}</span></div>
+    <div><b>Uploaded</b><span>{_esc(row.get("uploaded_at") or "")}</span></div>
+  </div>
+</div>
+"""
+    side_html = employee_side + file_side
     html = render_detail_page(
         title=row.get("filename") or "Document",
         nav_active=NAME,
@@ -272,6 +386,7 @@ def detail_view(handler, item_id: int) -> None:
         item_id=int(item_id),
         api_path=f"/api/m/{NAME}",
         delete_redirect=f"/m/{NAME}",
+        side_html=side_html,
     )
     handler._html(200, html)
 
